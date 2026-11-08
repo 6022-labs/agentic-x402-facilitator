@@ -1,0 +1,511 @@
+{
+  "title": "Agentic \u2014 x402 Facilitator",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "agentic",
+    "x402",
+    "facilitator"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "query": {
+          "query": "label_values(deployment_environment_name)",
+          "refId": "environment"
+        },
+        "definition": "label_values(deployment_environment_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "query": {
+          "query": "label_values(service_name)",
+          "refId": "service"
+        },
+        "definition": "label_values(service_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Verifications by outcome",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_network, x402_outcome) (rate(x402_facilitator_verification_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{x402_network}} {{x402_outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Settlements by outcome",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_network, x402_outcome) (rate(x402_facilitator_settlement_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{x402_network}} {{x402_outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 verification duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (x402_network, le) (rate(x402_facilitator_verification_duration_seconds_bucket{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m])))",
+          "legendFormat": "{{x402_network}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 settlement duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (x402_network, le) (rate(x402_facilitator_settlement_duration_seconds_bucket{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m])))",
+          "legendFormat": "{{x402_network}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Relayer balance (native token)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (chain_id) (x402_facilitator_relayer_balance{deployment_environment_name=~\"$environment\", service_name=~\"$service\"})",
+          "legendFormat": "chain {{chain_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Settlements refused or failed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_outcome) (rate(x402_facilitator_settlement_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\", x402_outcome!=\"settled\", x402_outcome!=\"settlement_pending\"}[5m]))",
+          "legendFormat": "{{x402_outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Vault operations",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (vault_operation_name) (rate(vault_operation_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{vault_operation_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Vault error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (vault_operation_name) (rate(vault_operation_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\", error_type!=\"\"}[5m]))",
+          "legendFormat": "{{vault_operation_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis commands",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (db_operation_name) (rate(db_client_operation_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{db_operation_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (db_operation_name) (rate(db_client_operation_duration_seconds_count{error_type!=\"\", deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{db_operation_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gas spent per hour (native token)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (chain_id, x402_settlement_status) (increase(x402_facilitator_relayer_gas_spent_total{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[1h]))",
+          "legendFormat": "chain {{chain_id}} {{x402_settlement_status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gas used per hour",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (chain_id) (increase(x402_facilitator_relayer_gas_used_total{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[1h]))",
+          "legendFormat": "chain {{chain_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Settlements by token",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_network, x402_asset) (rate(x402_facilitator_settlement_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{x402_network}} {{x402_asset}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Settled amount per hour (base units)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_network, x402_asset) (increase(x402_facilitator_payment_amount_total{deployment_environment_name=~\"$environment\", service_name=~\"$service\", x402_operation=\"settle\", x402_outcome=\"settled\"}[1h]))",
+          "legendFormat": "{{x402_network}} {{x402_asset}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verified amount per hour (base units)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_network, x402_asset, x402_operation) (increase(x402_facilitator_payment_amount_total{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[1h]))",
+          "legendFormat": "{{x402_network}} {{x402_asset}} {{x402_operation}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Settled amount per agent per hour (base units)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (x402_network, x402_asset, x402_pay_to) (increase(x402_facilitator_payment_amount_total{deployment_environment_name=~\"$environment\", service_name=~\"$service\", x402_operation=\"settle\", x402_outcome=\"settled\", x402_pay_to!=\"other\"}[1h]))",
+          "legendFormat": "{{x402_pay_to}} {{x402_asset}}"
+        }
+      ]
+    }
+  ]
+}

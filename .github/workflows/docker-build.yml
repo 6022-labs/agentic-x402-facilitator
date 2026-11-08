@@ -1,0 +1,92 @@
+name: Docker Build
+
+on:
+  pull_request:
+    paths:
+      - "src/x402_facilitator_host/Dockerfile"
+      - "src/x402_facilitator_host/Dockerfile.dockerignore"
+      - "grafana/Dockerfile"
+      - "grafana/docker-entrypoint.sh"
+      - "grafana/dashboards/**"
+      - "grafana/provisioning/**"
+      - "grafana/alloy/**"
+      - "grafana/loki/**"
+      - "grafana/mimir/**"
+      - "grafana/tempo/**"
+      - ".github/workflows/docker-build.yml"
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Lists the images whose build inputs changed, so the matrix skips the others.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      dockerfiles: ${{ steps.filter.outputs.changes }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Detect changed images
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            src/x402_facilitator_host/Dockerfile:
+              - "src/x402_facilitator_host/Dockerfile"
+              - "src/x402_facilitator_host/Dockerfile.dockerignore"
+              - &workflow ".github/workflows/docker-build.yml"
+            grafana/Dockerfile:
+              - "grafana/Dockerfile"
+              - "grafana/docker-entrypoint.sh"
+              - "grafana/dashboards/**"
+              - "grafana/provisioning/**"
+              - *workflow
+            grafana/alloy/Dockerfile:
+              - "grafana/alloy/**"
+              - *workflow
+            grafana/loki/Dockerfile:
+              - "grafana/loki/**"
+              - *workflow
+            grafana/mimir/Dockerfile:
+              - "grafana/mimir/**"
+              - *workflow
+            grafana/tempo/Dockerfile:
+              - "grafana/tempo/**"
+              - *workflow
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.dockerfiles != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: ${{ fromJSON(needs.changes.outputs.dockerfiles) }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      # Go host images build from their module root, the others from their own folder.
+      - name: Build
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: |
+          case "$DOCKERFILE" in
+            src/*) context=. ;;
+            */src/*) context="${DOCKERFILE%%/src/*}" ;;
+            *) context="$(dirname "$DOCKERFILE")" ;;
+          esac
+          docker build --file "$DOCKERFILE" "$context"

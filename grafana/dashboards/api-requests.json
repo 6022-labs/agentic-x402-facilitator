@@ -1,0 +1,185 @@
+{
+  "title": "Agentic \u2014 API Requests (server)",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "agentic",
+    "http",
+    "server"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "query": {
+          "query": "label_values(deployment_environment_name)",
+          "refId": "environment"
+        },
+        "definition": "label_values(deployment_environment_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "query": {
+          "query": "label_values(service_name)",
+          "refId": "service"
+        },
+        "definition": "label_values(service_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate by service/route",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name, http_route) (rate(http_server_request_duration_seconds_count{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{service_name}} {{http_route}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{error_type!=\"\",deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{deployment_environment_name=~\"$environment\", service_name=~\"$service\"}[5m])))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "In-flight requests",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (http_server_active_requests{deployment_environment_name=~\"$environment\", service_name=~\"$service\"})",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    }
+  ]
+}

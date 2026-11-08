@@ -1,0 +1,84 @@
+# Created by https://www.toptal.com/developers/gitignore/api/dotenv,macos,sonarqube,visualstudiocode,go,git
+
+### dotenv ###
+.env
+
+### Git ###
+*.orig
+*.BACKUP.*
+*.BASE.*
+*.LOCAL.*
+*.REMOTE.*
+*_BACKUP_*.txt
+*_BASE_*.txt
+*_LOCAL_*.txt
+*_REMOTE_*.txt
+
+### Go ###
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+*.icloud
+
+### SonarQube ###
+.sonar/
+.sonarqube/
+.scannerwork/
+.sonarlint/
+
+### VisualStudioCode ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+.history/
+*.vsix
+.history
+.ionide
+
+### Delve ###
+__debug_bin*
+
+### AppSettings ###
+appsettings*
+!appsettings*.example.json
+
+### Git Worktrees ###
+worktrees/
+.claude/worktrees/
+.claude/.worktrees/
+
+# Personal Claude Code settings (not committed)
+.claude/settings.local.json

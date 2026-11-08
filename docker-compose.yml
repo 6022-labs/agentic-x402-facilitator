@@ -1,0 +1,141 @@
+services:
+  x402-facilitator:
+    build:
+      context: .
+      dockerfile: src/x402_facilitator_host/Dockerfile
+    env_file:
+      - src/x402_facilitator_host/.env
+    environment:
+      - VAULT__ADDRESS=http://x402-facilitator-vault:8200
+      - VAULT__TOKEN=x402-facilitator-dev-token
+      - VAULT__KV_V1_MOUNT_PATH=secret
+      - REDIS__HOST=x402-facilitator-redis:6379
+      - TELEMETRY__ENABLED=true
+      - TELEMETRY__ENDPOINT=x402-facilitator-alloy:4317
+      - TELEMETRY__INSECURE=true
+      - TELEMETRY__INSTANCE_ID=local-dev
+      - TELEMETRY__ENVIRONMENT=local
+      # A token means bearer, a username + password means basic; setting both is fatal.
+      # - TELEMETRY__AUTH_TOKEN=shared-secret
+      # - TELEMETRY__AUTH_USERNAME=ingest-user
+      # - TELEMETRY__AUTH_PASSWORD=secret
+    ports:
+      - "5000:5000"
+    depends_on:
+      x402-facilitator-vault:
+        condition: service_healthy
+      x402-facilitator-redis:
+        condition: service_healthy
+
+  x402-facilitator-redis:
+    image: "redis:8-alpine"
+    container_name: x402-facilitator-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Dev Vault: the KV v2 "secret" mount is swapped for v1, then RELAYER_PRIVATE_KEY (if set) is stored as the relayer.
+  x402-facilitator-vault:
+    image: "hashicorp/vault:2.2"
+    container_name: x402-facilitator-vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+      VAULT_TOKEN: "x402-facilitator-dev-token"
+      RELAYER_PRIVATE_KEY: "${RELAYER_PRIVATE_KEY:-}"
+    healthcheck:
+      test: ["CMD-SHELL", "vault read -field=options sys/mounts/secret | grep -q 'version:1'"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    command: >
+      /bin/sh -c "
+      vault server -dev -dev-listen-address=0.0.0.0:8200 -dev-root-token-id=x402-facilitator-dev-token &
+      sleep 5 &&
+      vault secrets disable secret &&
+      vault secrets enable -version=1 -path=secret kv &&
+      if [ -n \"$$RELAYER_PRIVATE_KEY\" ]; then vault kv put secret/relayer private_key=$$RELAYER_PRIVATE_KEY; fi &&
+      wait"
+
+  # Observability stack: Alloy (OTLP) -> Mimir + Loki + Tempo, shown in Grafana.
+  x402-facilitator-alloy:
+    build: ./grafana/alloy
+    container_name: x402-facilitator-alloy
+    environment:
+      - LOKI_URL=http://x402-facilitator-loki:3100
+      - MIMIR_URL=http://x402-facilitator-mimir:9009
+      - TEMPO_OTLP_URL=http://x402-facilitator-tempo:4318
+      # Ingest auth is off by default. htpasswd (one credential per sender, `$` escaped as `$$`)
+      # wins over token (one shared by every sender).
+      # - OTLP_AUTH_HTPASSWD=ingest-user:secret
+      # - OTLP_AUTH_TOKEN=shared-secret
+      # - OTLP_TLS_CERT_FILE=/certs/alloy.crt
+      # - OTLP_TLS_KEY_FILE=/certs/alloy.key
+      # - OTLP_TLS_CLIENT_CA_FILE=/certs/ca.crt
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+
+  x402-facilitator-mimir:
+    image: "grafana/mimir:3.2.0"
+    container_name: x402-facilitator-mimir
+    command: ["--config.file=/etc/mimir/mimir.yml", "--target=all"]
+    volumes:
+      - ./grafana/mimir/mimir-config.yaml:/etc/mimir/mimir.yml
+      - x402-facilitator-mimir-data:/mimir-data
+    ports:
+      - "9009:9009"
+
+  x402-facilitator-loki:
+    image: "grafana/loki:3.7.6"
+    container_name: x402-facilitator-loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./grafana/loki/loki-config.yaml:/etc/loki/loki.yaml
+      - x402-facilitator-loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  x402-facilitator-tempo:
+    image: "grafana/tempo:3.0.3"
+    container_name: x402-facilitator-tempo
+    depends_on:
+      - x402-facilitator-mimir
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./grafana/tempo/tempo-config.yaml:/etc/tempo/tempo.yml
+      - x402-facilitator-tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  x402-facilitator-grafana:
+    image: "grafana/grafana:13.2.0"
+    container_name: x402-facilitator-grafana
+    depends_on:
+      - x402-facilitator-mimir
+      - x402-facilitator-loki
+      - x402-facilitator-tempo
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      # Local dev only; this stack is not meant to be exposed.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      MIMIR_URL: "http://x402-facilitator-mimir:9009"
+      LOKI_URL: "http://x402-facilitator-loki:3100"
+      TEMPO_URL: "http://x402-facilitator-tempo:3200"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+
+volumes:
+  x402-facilitator-mimir-data:
+  x402-facilitator-loki-data:
+  x402-facilitator-tempo-data:

@@ -1,0 +1,55 @@
+name: Go Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+      - ".github/workflows/go-build.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+      - ".github/workflows/go-build.yml"
+
+concurrency:
+  group: go-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        id: setup-go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.2"
+          cache: false
+
+      # Sole writer of the Go cache: parallel jobs saving the same key race and waste the upload.
+      - name: Cache Go modules and build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
+
+      - name: Build
+        run: go build ./src/...

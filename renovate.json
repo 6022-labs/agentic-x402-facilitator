@@ -1,0 +1,84 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "reviewers": [
+    "FournyP"
+  ],
+  "timezone": "Europe/Paris",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prHourlyLimit": 0,
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "enabledManagers": [
+    "gomod",
+    "dockerfile",
+    "docker-compose",
+    "github-actions",
+    "custom.regex"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "swag CLI version used to generate the Swagger docs.",
+      "managerFilePatterns": [
+        "/(^|/)generate_docs\\.sh$/"
+      ],
+      "matchStrings": [
+        "go run (?<depName>github\\.com/swaggo/swag(?:/v2)?)/cmd/swag@(?<currentValue>v\\S+)"
+      ],
+      "datasourceTemplate": "go"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Go module minor/patch updates in one PR.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "go modules non-major"
+    },
+    {
+      "description": "Image minor/patch updates in one PR.",
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "docker images non-major"
+    },
+    {
+      "description": "Go version moves together everywhere it is pinned; golangci-lint follows since its prebuilt binary panics on a newer Go.",
+      "matchDepNames": [
+        "go",
+        "golang",
+        "golangci/golangci-lint"
+      ],
+      "groupName": "go toolchain"
+    },
+    {
+      "description": "Code generator versions: the generated code must be regenerated in the same PR.",
+      "matchFileNames": [
+        "**/generate_docs.sh"
+      ],
+      "groupName": "codegen tools",
+      "prBodyNotes": [
+        "Re-run `generate_docs.sh` and commit the regenerated code before merging."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+
+distributor:
+  ring:
+    kvstore:
+      store: inmemory
+
+ingester:
+  ring:
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+  active_series_metrics_enabled: false
+
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /mimir-data/blocks
+  tsdb:
+    dir: /mimir-data/tsdb
+
+compactor:
+  sharding_ring:
+    kvstore:
+      store: inmemory
+  data_dir: /mimir-data/compactor
+
+store_gateway:
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /mimir-data/rules
+
+limits:
+  compactor_blocks_retention_period: 168h

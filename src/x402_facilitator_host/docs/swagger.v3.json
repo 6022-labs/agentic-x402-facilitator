@@ -1,0 +1,476 @@
+{
+    "components": {
+        "schemas": {
+            "errors.BadRequestError": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "errors.InternalError": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "errors.UnavailableError": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.Eip3009Authorization": {
+                "properties": {
+                    "from": {
+                        "type": "string"
+                    },
+                    "nonce": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    },
+                    "validAfter": {
+                        "type": "string"
+                    },
+                    "validBefore": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.ExactEvmPayload": {
+                "properties": {
+                    "authorization": {
+                        "$ref": "#/components/schemas/requests.Eip3009Authorization"
+                    },
+                    "signature": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.PaymentPayload": {
+                "properties": {
+                    "accepted": {
+                        "$ref": "#/components/schemas/requests.PaymentRequirements"
+                    },
+                    "network": {
+                        "type": "string"
+                    },
+                    "payload": {
+                        "$ref": "#/components/schemas/requests.ExactEvmPayload"
+                    },
+                    "resource": {
+                        "$ref": "#/components/schemas/requests.ResourceInfo"
+                    },
+                    "scheme": {
+                        "type": "string"
+                    },
+                    "x402Version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.PaymentRequirements": {
+                "properties": {
+                    "amount": {
+                        "type": "string"
+                    },
+                    "asset": {
+                        "type": "string"
+                    },
+                    "extra": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "maxTimeoutSeconds": {
+                        "type": "integer"
+                    },
+                    "network": {
+                        "type": "string"
+                    },
+                    "payTo": {
+                        "type": "string"
+                    },
+                    "scheme": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.ResourceInfo": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "mimeType": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.SettlePaymentRequest": {
+                "properties": {
+                    "paymentPayload": {
+                        "$ref": "#/components/schemas/requests.PaymentPayload"
+                    },
+                    "paymentRequirements": {
+                        "$ref": "#/components/schemas/requests.PaymentRequirements"
+                    },
+                    "x402Version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.VerifyPaymentRequest": {
+                "properties": {
+                    "paymentPayload": {
+                        "$ref": "#/components/schemas/requests.PaymentPayload"
+                    },
+                    "paymentRequirements": {
+                        "$ref": "#/components/schemas/requests.PaymentRequirements"
+                    },
+                    "x402Version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "responses.GetHealthResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "responses.GetSupportedResponse": {
+                "properties": {
+                    "extensions": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kinds": {
+                        "items": {
+                            "$ref": "#/components/schemas/responses.SupportedKind"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "signers": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "responses.SettlePaymentResponse": {
+                "properties": {
+                    "errorMessage": {
+                        "type": "string"
+                    },
+                    "errorReason": {
+                        "type": "string"
+                    },
+                    "network": {
+                        "type": "string"
+                    },
+                    "payer": {
+                        "type": "string"
+                    },
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "transaction": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "responses.SupportedKind": {
+                "properties": {
+                    "network": {
+                        "type": "string"
+                    },
+                    "scheme": {
+                        "type": "string"
+                    },
+                    "x402Version": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "responses.VerifyPaymentResponse": {
+                "properties": {
+                    "invalidMessage": {
+                        "type": "string"
+                    },
+                    "invalidReason": {
+                        "type": "string"
+                    },
+                    "isValid": {
+                        "type": "boolean"
+                    },
+                    "payer": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "description": "x402 v2 facilitator: verifies and settles exact EIP-3009 payments.",
+        "title": "Agentic x402 Facilitator API",
+        "version": "1.0"
+    },
+    "externalDocs": {
+        "description": "",
+        "url": ""
+    },
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Liveness probe for the x402 facilitator.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/responses.GetHealthResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "Health check",
+                "tags": [
+                    "Health"
+                ]
+            }
+        },
+        "/settle": {
+            "post": {
+                "description": "Verifies, submits and waits for an exact EIP-3009 payment; a refused one answers 200, success false.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/requests.SettlePaymentRequest",
+                                        "summary": "body",
+                                        "description": "payment payload and requirements"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "payment payload and requirements",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/responses.SettlePaymentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.BadRequestError"
+                                }
+                            }
+                        },
+                        "description": "invalid_body"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.InternalError"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.UnavailableError"
+                                }
+                            }
+                        },
+                        "description": "unavailable dependency, or settlement_in_progress"
+                    }
+                },
+                "summary": "Settle a payment",
+                "tags": [
+                    "Facilitator"
+                ]
+            }
+        },
+        "/supported": {
+            "get": {
+                "description": "Lists the networks it settles and the relayer address.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/responses.GetSupportedResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.InternalError"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.UnavailableError"
+                                }
+                            }
+                        },
+                        "description": "relayer_unavailable"
+                    }
+                },
+                "summary": "Supported payment kinds",
+                "tags": [
+                    "Facilitator"
+                ]
+            }
+        },
+        "/verify": {
+            "post": {
+                "description": "Checks an exact EIP-3009 payment without writing on-chain; a refused one answers 200, isValid false.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/requests.VerifyPaymentRequest",
+                                        "summary": "body",
+                                        "description": "payment payload and requirements"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "payment payload and requirements",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/responses.VerifyPaymentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.BadRequestError"
+                                }
+                            }
+                        },
+                        "description": "invalid_body"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.InternalError"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/errors.UnavailableError"
+                                }
+                            }
+                        },
+                        "description": "registry, chain, relayer or store unavailable"
+                    }
+                },
+                "summary": "Verify a payment",
+                "tags": [
+                    "Facilitator"
+                ]
+            }
+        }
+    },
+    "openapi": "3.1.0",
+    "servers": [
+        {
+            "url": "/"
+        }
+    ]
+}

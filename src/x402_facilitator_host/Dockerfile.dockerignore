@@ -1,0 +1,30 @@
+# Docker reads <Dockerfile>.dockerignore next to the Dockerfile, whatever the build context.
+
+# VCS + IDE
+.git
+.gitignore
+.vscode
+.idea
+.devcontainer
+
+# Local secrets / configs (use env or mount real config)
+.env
+**/.env
+**/appsettings.json
+
+# Tests + mocks (not needed in the runtime image)
+tests/
+
+# Build / module artifacts
+bin/
+*.test
+*.out
+coverage.*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Compose / runtime state
+docker-compose.override.yml
+*.pid

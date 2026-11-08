@@ -1,0 +1,77 @@
+// Markers are filled by docker-entrypoint.sh; unset OTLP_AUTH_* / OTLP_TLS_* leaves them empty.
+__OTLP_AUTH_EXTENSION__
+
+otelcol.receiver.otlp "otlp" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+__OTLP_AUTH_ATTR__
+__OTLP_TLS_BLOCK__
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+__OTLP_AUTH_ATTR__
+__OTLP_TLS_BLOCK__
+  }
+
+  output {
+    metrics = [otelcol.processor.memory_limiter.memlimit.input]
+    logs    = [otelcol.processor.memory_limiter.memlimit.input]
+    traces  = [otelcol.processor.memory_limiter.memlimit.input]
+  }
+}
+
+otelcol.processor.memory_limiter "memlimit" {
+  check_interval = "5s"
+  limit_percentage       = 90
+  spike_limit_percentage = 25
+
+  output {
+    metrics = [otelcol.processor.batch.batchproc.input]
+    logs    = [otelcol.processor.batch.batchproc.input]
+    traces  = [otelcol.processor.batch.batchproc.input]
+  }
+}
+
+otelcol.exporter.debug "debug" {
+  verbosity = "basic"
+}
+
+// resource_to_telemetry_conversion promotes OTEL resource attributes
+// (service.name, service.instance.id, deployment.environment.name) to Prometheus
+// labels so dashboards can filter by service and by environment.
+otelcol.exporter.prometheus "prom_export" {
+  resource_to_telemetry_conversion = true
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+otelcol.exporter.loki "loki" {
+  forward_to = [loki.write.default.receiver]
+}
+
+// Traces ship to Tempo over OTLP/HTTP; retarget another backend (e.g. Langfuse,
+// which only accepts OTLP/HTTP) by swapping this endpoint — no agent code change.
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = sys.env("TEMPO_OTLP_URL")
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = string.format("%s/loki/api/v1/push", sys.env("LOKI_URL"))
+  }
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = string.format("%s/api/v1/push", sys.env("MIMIR_URL"))
+  }
+}
+
+otelcol.processor.batch "batchproc" {
+  output {
+    traces  = [otelcol.exporter.otlphttp.tempo.input, otelcol.exporter.debug.debug.input]
+    logs    = [otelcol.exporter.loki.loki.input, otelcol.exporter.debug.debug.input]
+    metrics = [otelcol.exporter.prometheus.prom_export.input, otelcol.exporter.debug.debug.input]
+  }
+}
