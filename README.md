@@ -201,3 +201,7 @@ make mocks            # regenerate the mocks after changing an interface
 make swagger          # regenerate the API docs
 make abi              # regenerate the contract bindings
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
