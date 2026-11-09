@@ -11,7 +11,6 @@ import (
 	apperrors "github.com/6022-labs/agentic-x402-facilitator/src/common/errors"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models"
 	x402_facilitator_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services/interfaces"
-	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/abi"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/factory"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/helpers"
 	metrics_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/metrics/interfaces"
@@ -41,8 +40,8 @@ var (
 	errNotConfirmed = errors.New("settlement not confirmed yet")
 )
 
-// Eip3009TransferSubmitter shares the relayer nonce and send lock in Redis, so replicas never reuse a nonce.
-type Eip3009TransferSubmitter struct {
+// TransferSubmitter shares the relayer nonce and send lock in Redis, so replicas never reuse a nonce.
+type TransferSubmitter struct {
 	ethClientFactory  *factory.EthClientFactory
 	transactorFactory *factory.TransactorFactory
 	chainsSettings    *blockchain_settings.ChainsSettings
@@ -50,10 +49,9 @@ type Eip3009TransferSubmitter struct {
 	cacheStorage      x402_facilitator_interfaces.CacheStorageInterface
 	relayerMetrics    metrics_interfaces.RelayerMetricsInterface
 	logger            *zap.Logger
-	tokenAbi          *gethabi.ABI
 }
 
-func NewEip3009TransferSubmitter(
+func NewTransferSubmitter(
 	ethClientFactory *factory.EthClientFactory,
 	transactorFactory *factory.TransactorFactory,
 	chainsSettings *blockchain_settings.ChainsSettings,
@@ -61,13 +59,8 @@ func NewEip3009TransferSubmitter(
 	cacheStorage x402_facilitator_interfaces.CacheStorageInterface,
 	relayerMetrics metrics_interfaces.RelayerMetricsInterface,
 	logger *zap.Logger,
-) *Eip3009TransferSubmitter {
-	tokenAbi, err := abi.Eip3009TokenMetaData.GetAbi()
-	if err != nil {
-		logger.Fatal("failed to parse the EIP-3009 token ABI", zap.Error(err))
-	}
-	return &Eip3009TransferSubmitter{
-		tokenAbi:          tokenAbi,
+) *TransferSubmitter {
+	return &TransferSubmitter{
 		ethClientFactory:  ethClientFactory,
 		transactorFactory: transactorFactory,
 		chainsSettings:    chainsSettings,
@@ -78,11 +71,26 @@ func NewEip3009TransferSubmitter(
 	}
 }
 
-func (s *Eip3009TransferSubmitter) Broadcast(
+func (s *TransferSubmitter) Simulate(ctx context.Context, chainId uint64, call *models.TransferCall) error {
+	client, err := s.ethClientFactory.For(chainId)
+	if err != nil {
+		return err
+	}
+	relayer, err := s.transactorFactory.Address(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = client.CallContract(ctx, ethereum.CallMsg{From: relayer, To: &call.To, Data: call.Data}, nil)
+	if helpers.IsRevert(err) {
+		return fmt.Errorf("%w: %v", apperrors.ErrTransferRejected, err)
+	}
+	return err
+}
+
+func (s *TransferSubmitter) Broadcast(
 	ctx context.Context,
 	chainId uint64,
-	token common.Address,
-	authorization *models.TransferAuthorization,
+	call *models.TransferCall,
 ) (common.Hash, error) {
 	chain, client, err := s.chain(chainId)
 	if err != nil {
@@ -92,10 +100,7 @@ func (s *Eip3009TransferSubmitter) Broadcast(
 	if err != nil {
 		return common.Hash{}, err
 	}
-	transactor, err := abi.NewEip3009TokenTransactor(token, client)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("bind token: %w", err)
-	}
+	contract := bind.NewBoundContract(call.To, gethabi.ABI{}, client, client, client)
 
 	keys := s.relayerKeys(chainId, opts.From)
 	lockToken, err := s.acquireSendLock(ctx, keys.lock, chain)
@@ -113,7 +118,7 @@ func (s *Eip3009TransferSubmitter) Broadcast(
 	if err != nil {
 		return common.Hash{}, err
 	}
-	gasLimit, err := s.estimateGas(signCtx, client, token, opts.From, authorization)
+	gasLimit, err := s.estimateGas(signCtx, client, opts.From, call)
 	if err != nil {
 		return common.Hash{}, err
 	}
@@ -121,21 +126,9 @@ func (s *Eip3009TransferSubmitter) Broadcast(
 	opts.GasLimit = gasLimit
 	opts.NoSend = true
 
-	v, r, sigS := helpers.SplitSignature(authorization.Signature)
-	tx, err := transactor.TransferWithAuthorization(
-		opts,
-		authorization.From,
-		authorization.To,
-		authorization.Value,
-		authorization.ValidAfter,
-		authorization.ValidBefore,
-		authorization.Nonce,
-		v,
-		r,
-		sigS,
-	)
+	tx, err := contract.RawTransact(opts, call.Data)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("sign transferWithAuthorization: %w", err)
+		return common.Hash{}, fmt.Errorf("sign settlement: %w", err)
 	}
 
 	// Kept before sending: a send that dies half-way must still leave a transaction to refill its nonce.
@@ -161,45 +154,28 @@ func (s *Eip3009TransferSubmitter) Broadcast(
 			s.logger.Warn("refused transaction still kept, tracking it as sent", zap.String("tx", tx.Hash().Hex()))
 			return tx.Hash(), nil
 		}
-		return common.Hash{}, fmt.Errorf("send transferWithAuthorization: %w", sendErr)
+		return common.Hash{}, fmt.Errorf("send settlement: %w", sendErr)
 	}
 	return tx.Hash(), nil
 }
 
-func (s *Eip3009TransferSubmitter) estimateGas(
+func (s *TransferSubmitter) estimateGas(
 	ctx context.Context,
 	client *ethclient.Client,
-	token common.Address,
 	relayer common.Address,
-	authorization *models.TransferAuthorization,
+	call *models.TransferCall,
 ) (uint64, error) {
-	v, r, sigS := helpers.SplitSignature(authorization.Signature)
-	data, err := s.tokenAbi.Pack(
-		"transferWithAuthorization",
-		authorization.From,
-		authorization.To,
-		authorization.Value,
-		authorization.ValidAfter,
-		authorization.ValidBefore,
-		authorization.Nonce,
-		v,
-		r,
-		sigS,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("pack transferWithAuthorization: %w", err)
-	}
-	estimate, err := client.EstimateGas(ctx, ethereum.CallMsg{From: relayer, To: &token, Data: data})
+	estimate, err := client.EstimateGas(ctx, ethereum.CallMsg{From: relayer, To: &call.To, Data: call.Data})
 	if helpers.IsRevert(err) {
 		return 0, fmt.Errorf("%w: %v", apperrors.ErrTransferRejected, err)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("estimate transferWithAuthorization gas: %w", err)
+		return 0, fmt.Errorf("estimate settlement gas: %w", err)
 	}
 	return estimate + estimate*gasMarginPercent/100, nil
 }
 
-func (s *Eip3009TransferSubmitter) AwaitTransfer(
+func (s *TransferSubmitter) AwaitTransfer(
 	ctx context.Context,
 	chainId uint64,
 	txHash common.Hash,
@@ -222,7 +198,7 @@ func (s *Eip3009TransferSubmitter) AwaitTransfer(
 	return &models.Transfer{TxHash: txHash, Status: status}, nil
 }
 
-func (s *Eip3009TransferSubmitter) TransferStatus(
+func (s *TransferSubmitter) TransferStatus(
 	ctx context.Context,
 	chainId uint64,
 	txHash common.Hash,
@@ -249,7 +225,7 @@ func (s *Eip3009TransferSubmitter) TransferStatus(
 	return &models.Transfer{TxHash: txHash, Status: s.outcome(receipt)}, nil
 }
 
-func (s *Eip3009TransferSubmitter) chain(chainId uint64) (*blockchain_settings.ChainConfig, *ethclient.Client, error) {
+func (s *TransferSubmitter) chain(chainId uint64) (*blockchain_settings.ChainConfig, *ethclient.Client, error) {
 	chain := s.chainsSettings.Get(chainId)
 	if chain == nil {
 		return nil, nil, fmt.Errorf("no RPC configured for chain %d", chainId)
@@ -262,7 +238,7 @@ func (s *Eip3009TransferSubmitter) chain(chainId uint64) (*blockchain_settings.C
 }
 
 // send treats an ambiguous failure as sent: the node may hold the transaction, and its nonce is spent either way.
-func (s *Eip3009TransferSubmitter) send(
+func (s *TransferSubmitter) send(
 	ctx context.Context,
 	client *ethclient.Client,
 	chain *blockchain_settings.ChainConfig,
@@ -291,7 +267,7 @@ func (s *Eip3009TransferSubmitter) send(
 }
 
 // acquireSendLock waits at most one lock ttl, by which time even a dead holder's lock has expired.
-func (s *Eip3009TransferSubmitter) acquireSendLock(
+func (s *TransferSubmitter) acquireSendLock(
 	ctx context.Context,
 	lockKey string,
 	chain *blockchain_settings.ChainConfig,
@@ -323,14 +299,14 @@ func (s *Eip3009TransferSubmitter) acquireSendLock(
 	return token, err
 }
 
-func (s *Eip3009TransferSubmitter) releaseSendLock(ctx context.Context, lockKey string, token string) {
+func (s *TransferSubmitter) releaseSendLock(ctx context.Context, lockKey string, token string) {
 	if err := s.lockStorage.Unlock(context.WithoutCancel(ctx), lockKey, token); err != nil {
 		s.logger.Warn("failed to release the relayer send lock", zap.String("key", lockKey), zap.Error(err))
 	}
 }
 
 // nextNonce resends the transactions kept from the node's pending nonce on and takes the first nonce with none.
-func (s *Eip3009TransferSubmitter) nextNonce(
+func (s *TransferSubmitter) nextNonce(
 	ctx context.Context,
 	client *ethclient.Client,
 	chain *blockchain_settings.ChainConfig,
@@ -354,7 +330,7 @@ func (s *Eip3009TransferSubmitter) nextNonce(
 }
 
 // refillNonceGap runs after a pending wait: with no later send, nothing else would notice a lost transaction.
-func (s *Eip3009TransferSubmitter) refillNonceGap(
+func (s *TransferSubmitter) refillNonceGap(
 	ctx context.Context,
 	client *ethclient.Client,
 	chain *blockchain_settings.ChainConfig,
@@ -382,7 +358,7 @@ func (s *Eip3009TransferSubmitter) refillNonceGap(
 }
 
 // resendSigned sends the kept transaction at nonce again; false when the nonce is still free.
-func (s *Eip3009TransferSubmitter) resendSigned(
+func (s *TransferSubmitter) resendSigned(
 	ctx context.Context,
 	client *ethclient.Client,
 	chain *blockchain_settings.ChainConfig,
@@ -413,7 +389,7 @@ func (s *Eip3009TransferSubmitter) resendSigned(
 }
 
 // restoreSigned puts back what was kept at nonce before a send the node refused.
-func (s *Eip3009TransferSubmitter) restoreSigned(
+func (s *TransferSubmitter) restoreSigned(
 	ctx context.Context,
 	keys relayerKeys,
 	nonce uint64,
@@ -426,7 +402,7 @@ func (s *Eip3009TransferSubmitter) restoreSigned(
 }
 
 // keepSigned stores the signed transaction, so a later send can refill its nonce if the chain loses it.
-func (s *Eip3009TransferSubmitter) keepSigned(ctx context.Context, keys relayerKeys, tx *types.Transaction) error {
+func (s *TransferSubmitter) keepSigned(ctx context.Context, keys relayerKeys, tx *types.Transaction) error {
 	raw, err := tx.MarshalBinary()
 	if err != nil {
 		return err
@@ -444,13 +420,13 @@ func (k relayerKeys) signed(nonce uint64) string {
 	return fmt.Sprintf("%s:tx:%d", k.prefix, nonce)
 }
 
-func (s *Eip3009TransferSubmitter) relayerKeys(chainId uint64, relayer common.Address) relayerKeys {
+func (s *TransferSubmitter) relayerKeys(chainId uint64, relayer common.Address) relayerKeys {
 	prefix := fmt.Sprintf("x402:relayer:%d:%s", chainId, strings.ToLower(relayer.Hex()))
 	return relayerKeys{lock: prefix + ":lock", prefix: prefix}
 }
 
 // waitForOutcome returns the receipt the status rests on, nil when pending.
-func (s *Eip3009TransferSubmitter) waitForOutcome(
+func (s *TransferSubmitter) waitForOutcome(
 	ctx context.Context,
 	client *ethclient.Client,
 	chain *blockchain_settings.ChainConfig,
@@ -496,7 +472,7 @@ func (s *Eip3009TransferSubmitter) waitForOutcome(
 	return status, receipt
 }
 
-func (s *Eip3009TransferSubmitter) outcome(receipt *types.Receipt) models.TransferStatus {
+func (s *TransferSubmitter) outcome(receipt *types.Receipt) models.TransferStatus {
 	if receipt.Status == types.ReceiptStatusFailed {
 		return models.TransferStatusReverted
 	}
@@ -504,7 +480,7 @@ func (s *Eip3009TransferSubmitter) outcome(receipt *types.Receipt) models.Transf
 }
 
 // recordGasSpent prices the gas at the receipt's effective price, which every post-London node returns.
-func (s *Eip3009TransferSubmitter) recordGasSpent(
+func (s *TransferSubmitter) recordGasSpent(
 	ctx context.Context,
 	chainId uint64,
 	receipt *types.Receipt,

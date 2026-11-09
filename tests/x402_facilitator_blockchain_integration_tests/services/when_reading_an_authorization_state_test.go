@@ -19,8 +19,8 @@ import (
 
 type WhenReadingAnAuthorizationStateTestingSuite struct {
 	chain     *fixtures.IntegrationChain
-	submitter *blockchain_services.Eip3009TransferSubmitter
-	sut       *blockchain_services.Eip3009TokenRequester
+	submitter *blockchain_services.TransferSubmitter
+	sut       *blockchain_services.TokenRequester
 }
 
 func WhenReadingAnAuthorizationStateBeforeEach(t *testing.T) *WhenReadingAnAuthorizationStateTestingSuite {
@@ -32,7 +32,7 @@ func WhenReadingAnAuthorizationStateBeforeEach(t *testing.T) *WhenReadingAnAutho
 
 	return &WhenReadingAnAuthorizationStateTestingSuite{
 		chain: chain,
-		submitter: blockchain_services.NewEip3009TransferSubmitter(
+		submitter: blockchain_services.NewTransferSubmitter(
 			chain.EthClientFactory,
 			chain.TransactorFactory,
 			chain.ChainsSettings,
@@ -41,11 +41,7 @@ func WhenReadingAnAuthorizationStateBeforeEach(t *testing.T) *WhenReadingAnAutho
 			mockRelayerMetrics,
 			zap.NewNop(),
 		),
-		sut: blockchain_services.NewEip3009TokenRequester(
-			zap.NewNop(),
-			chain.EthClientFactory,
-			chain.TransactorFactory,
-		),
+		sut: blockchain_services.NewTokenRequester(chain.EthClientFactory),
 	}
 }
 
@@ -105,10 +101,7 @@ func TestWhenReadingAnAuthorizationState(t *testing.T) {
 			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
 			txHash, err := suite.submitter.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 			require.NoError(t, err)
 			transfer, err := suite.submitter.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
 			require.NoError(t, err)

@@ -40,6 +40,8 @@ definitions:
     properties:
       authorization:
         $ref: '#/definitions/requests.Eip3009Authorization'
+      permit2Authorization:
+        $ref: '#/definitions/requests.Permit2Authorization'
       signature:
         type: string
     type: object
@@ -74,6 +76,35 @@ definitions:
       payTo:
         type: string
       scheme:
+        type: string
+    type: object
+  requests.Permit2Authorization:
+    properties:
+      deadline:
+        type: string
+      from:
+        type: string
+      nonce:
+        type: string
+      permitted:
+        $ref: '#/definitions/requests.Permit2TokenPermissions'
+      spender:
+        type: string
+      witness:
+        $ref: '#/definitions/requests.Permit2Witness'
+    type: object
+  requests.Permit2TokenPermissions:
+    properties:
+      amount:
+        type: string
+      token:
+        type: string
+    type: object
+  requests.Permit2Witness:
+    properties:
+      to:
+        type: string
+      validAfter:
         type: string
     type: object
   requests.ResourceInfo:

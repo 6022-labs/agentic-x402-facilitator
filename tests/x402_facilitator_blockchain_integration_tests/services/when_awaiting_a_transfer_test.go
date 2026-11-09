@@ -21,7 +21,7 @@ import (
 type WhenAwaitingATransferTestingSuite struct {
 	chain              *fixtures.IntegrationChain
 	mockRelayerMetrics *blockchain_metrics_mocks.MockRelayerMetricsInterface
-	sut                *blockchain_services.Eip3009TransferSubmitter
+	sut                *blockchain_services.TransferSubmitter
 }
 
 func WhenAwaitingATransferBeforeEach(
@@ -34,7 +34,7 @@ func WhenAwaitingATransferBeforeEach(
 	return &WhenAwaitingATransferTestingSuite{
 		chain:              chain,
 		mockRelayerMetrics: mockRelayerMetrics,
-		sut: blockchain_services.NewEip3009TransferSubmitter(
+		sut: blockchain_services.NewTransferSubmitter(
 			chain.EthClientFactory,
 			chain.TransactorFactory,
 			chain.ChainsSettings,
@@ -52,10 +52,7 @@ func (suite *WhenAwaitingATransferTestingSuite) broadcast(t *testing.T, builder 
 	payment := builder.BuildPayment()
 	txHash, err := suite.sut.Broadcast(
 		context.Background(),
-		suite.chain.ChainId,
-		suite.chain.Token.Address,
-		payment.Authorization,
-	)
+		suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 	require.NoError(t, err)
 	return txHash
 }
@@ -87,7 +84,7 @@ func TestWhenAwaitingATransfer(t *testing.T) {
 
 			suite := WhenAwaitingATransferBeforeEach(
 				t,
-				blockchain_settings.ChainConfig{Confirmations: 50, ReceiptTimeout: 3 * time.Second},
+				blockchain_settings.ChainConfig{Confirmations: 10_000, ReceiptTimeout: 3 * time.Second},
 			)
 			txHash := suite.broadcast(t, suite.chain.FundedPayment(t, 1000))
 

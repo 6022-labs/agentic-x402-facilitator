@@ -8,33 +8,38 @@ import (
 	"time"
 
 	apperrors "github.com/6022-labs/agentic-x402-facilitator/src/common/errors"
-	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/helpers"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
 	x402_facilitator_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services/interfaces"
 	x402_facilitator_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/settings"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/samber/lo"
 )
 
 // validBeforeMargin leaves the settlement time to land before the authorization expires.
 const validBeforeMargin = 6 * time.Second
 
+// PaymentVerifier runs the checks every method shares and hands the method-specific ones to its strategy.
 type PaymentVerifier struct {
-	tokensSettings          *x402_facilitator_settings.TokensSettings
-	payToEligibilityChecker x402_facilitator_interfaces.PayToEligibilityCheckerInterface
-	eip3009TokenRequester   x402_facilitator_interfaces.Eip3009TokenRequesterInterface
+	tokensSettings                *x402_facilitator_settings.TokensSettings
+	payToEligibilityChecker       x402_facilitator_interfaces.PayToEligibilityCheckerInterface
+	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface
+	tokenRequester                x402_facilitator_interfaces.TokenRequesterInterface
+	transferSubmitter             x402_facilitator_interfaces.TransferSubmitterInterface
 }
 
 func NewPaymentVerifier(
 	tokensSettings *x402_facilitator_settings.TokensSettings,
 	payToEligibilityChecker x402_facilitator_interfaces.PayToEligibilityCheckerInterface,
-	eip3009TokenRequester x402_facilitator_interfaces.Eip3009TokenRequesterInterface,
+	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface,
+	tokenRequester x402_facilitator_interfaces.TokenRequesterInterface,
+	transferSubmitter x402_facilitator_interfaces.TransferSubmitterInterface,
 ) *PaymentVerifier {
 	return &PaymentVerifier{
-		tokensSettings:          tokensSettings,
-		payToEligibilityChecker: payToEligibilityChecker,
-		eip3009TokenRequester:   eip3009TokenRequester,
+		tokensSettings:                tokensSettings,
+		payToEligibilityChecker:       payToEligibilityChecker,
+		assetTransferMethodStrategies: assetTransferMethodStrategies,
+		tokenRequester:                tokenRequester,
+		transferSubmitter:             transferSubmitter,
 	}
 }
 
@@ -60,7 +65,14 @@ func (v *PaymentVerifier) VerifyAuthorization(payment *models.Payment) error {
 	if token == nil {
 		return apperrors.NewInvalidPaymentError(enums.PaymentReasonInvalidPaymentRequirements, "asset is not supported")
 	}
-	return v.checkSignature(payment, token)
+	strategy, found := v.assetTransferMethodStrategies.For(payment.Method)
+	if !found || !lo.Contains(token.AssetTransferMethods, payment.Method) {
+		return apperrors.NewInvalidPaymentError(
+			enums.PaymentReasonInvalidPaymentRequirements,
+			"asset is not settled with this transfer method",
+		)
+	}
+	return strategy.VerifySignature(payment, token)
 }
 
 func (v *PaymentVerifier) checkValidityWindow(authorization *models.TransferAuthorization) error {
@@ -81,75 +93,28 @@ func (v *PaymentVerifier) checkValidityWindow(authorization *models.TransferAuth
 	return nil
 }
 
-func (v *PaymentVerifier) checkSignature(payment *models.Payment, token *x402_facilitator_settings.TokenConfig) error {
-	authorization := payment.Authorization
-	digest, err := helpers.TransferWithAuthorizationDigest(
-		authorization,
-		payment.Asset,
-		token.Eip712Name,
-		token.Eip712Version,
-		payment.ChainId,
-	)
-	if err != nil {
-		return apperrors.NewInvalidPaymentError(enums.PaymentReasonInvalidPayload, "authorization cannot be hashed")
-	}
-
-	signer, err := v.recoverSigner(digest, authorization.Signature)
-	if err != nil || signer != authorization.From {
-		return apperrors.NewInvalidPaymentError(
-			enums.PaymentReasonInvalidSignature,
-			"signature does not recover to from",
-		)
-	}
-	return nil
-}
-
-// recoverSigner accepts a v of 27/28 or 0/1, as wallets emit either.
-func (v *PaymentVerifier) recoverSigner(digest []byte, signature []byte) (common.Address, error) {
-	normalized := make([]byte, len(signature))
-	copy(normalized, signature)
-	if normalized[64] >= 27 {
-		normalized[64] -= 27
-	}
-	publicKey, err := crypto.SigToPub(digest, normalized)
-	if err != nil {
-		return common.Address{}, err
-	}
-	return crypto.PubkeyToAddress(*publicKey), nil
-}
-
 func (v *PaymentVerifier) checkOnChain(ctx context.Context, payment *models.Payment) error {
-	authorization := payment.Authorization
+	strategy, _ := v.assetTransferMethodStrategies.For(payment.Method)
+	if err := strategy.VerifyOnChain(ctx, payment); err != nil {
+		return v.refusedOrUnavailable(err)
+	}
 
-	used, err := v.eip3009TokenRequester.AuthorizationState(
-		ctx,
-		payment.ChainId,
-		payment.Asset,
-		authorization.From,
-		authorization.Nonce,
-	)
+	balance, err := v.tokenRequester.BalanceOf(ctx, payment.ChainId, payment.Asset, payment.Authorization.From)
 	if err != nil {
 		return v.unavailable(err)
 	}
-	if used {
-		return apperrors.NewInvalidPaymentError(
-			enums.PaymentReasonInvalidTransactionState,
-			"authorization nonce is already used",
-		)
-	}
-
-	balance, err := v.eip3009TokenRequester.BalanceOf(ctx, payment.ChainId, payment.Asset, authorization.From)
-	if err != nil {
-		return v.unavailable(err)
-	}
-	if balance.Cmp(authorization.Value) < 0 {
+	if balance.Cmp(payment.Authorization.Value) < 0 {
 		return apperrors.NewInvalidPaymentError(
 			enums.PaymentReasonInsufficientFunds,
 			"payer balance is below the amount",
 		)
 	}
 
-	err = v.eip3009TokenRequester.SimulateTransferWithAuthorization(ctx, payment.ChainId, payment.Asset, authorization)
+	call, err := strategy.TransferCall(payment)
+	if err != nil {
+		return err
+	}
+	err = v.transferSubmitter.Simulate(ctx, payment.ChainId, call)
 	if errors.Is(err, apperrors.ErrTransferRejected) {
 		return apperrors.NewInvalidPaymentError(
 			enums.PaymentReasonInvalidTransactionState,
@@ -160,6 +125,14 @@ func (v *PaymentVerifier) checkOnChain(ctx context.Context, payment *models.Paym
 		return v.unavailable(err)
 	}
 	return nil
+}
+
+func (v *PaymentVerifier) refusedOrUnavailable(err error) error {
+	var invalidPayment *apperrors.InvalidPaymentError
+	if errors.As(err, &invalidPayment) {
+		return err
+	}
+	return v.unavailable(err)
 }
 
 func (v *PaymentVerifier) unavailable(err error) error {

@@ -28,7 +28,7 @@ import (
 
 type WhenBroadcastingATransferTestingSuite struct {
 	chain *fixtures.IntegrationChain
-	sut   *blockchain_services.Eip3009TransferSubmitter
+	sut   *blockchain_services.TransferSubmitter
 }
 
 // WhenBroadcastingATransferBeforeEach uses the chain's relayer unless relayerKeyStorage is given.
@@ -47,7 +47,7 @@ func WhenBroadcastingATransferBeforeEach(
 
 	return &WhenBroadcastingATransferTestingSuite{
 		chain: chain,
-		sut: blockchain_services.NewEip3009TransferSubmitter(
+		sut: blockchain_services.NewTransferSubmitter(
 			chain.EthClientFactory,
 			transactorFactory,
 			chain.ChainsSettings,
@@ -80,7 +80,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			suite := WhenBroadcastingATransferBeforeEach(t, nil)
 			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
 
-			_, err := suite.sut.Broadcast(context.Background(), 1, suite.chain.Token.Address, payment.Authorization)
+			_, err := suite.sut.Broadcast(context.Background(), 1, suite.chain.TransferCall(t, payment))
 
 			assert.ErrorContains(t, err, "no RPC configured for chain 1")
 		})
@@ -99,10 +99,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			_, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
 			assert.ErrorIs(t, err, apperrors.ErrRelayerUnavailable)
 		})
@@ -134,10 +131,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			_, err = suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
 			assert.ErrorContains(t, err, "wait for relayer send lock")
 		})
@@ -179,10 +173,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			txHash, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
 			require.NoError(t, err)
 			_, _, err = suite.chain.Client.TransactionByHash(context.Background(), lost.Hash())
@@ -204,10 +195,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			_, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
 			assert.ErrorIs(t, err, apperrors.ErrTransferRejected)
 		})
@@ -222,10 +210,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			_, _ = suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
 			after, err := suite.chain.Client.PendingNonceAt(context.Background(), suite.chain.Relayer.Address)
 			require.NoError(t, err)
@@ -252,12 +237,9 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			_, err = suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
-			require.ErrorContains(t, err, "send transferWithAuthorization")
+			require.ErrorContains(t, err, "send settlement")
 			kept, err := suite.chain.RedisStorage.ReadString(
 				context.Background(),
 				suite.relayerKey(fmt.Sprintf("tx:%d", pending)),
@@ -267,7 +249,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 		})
 	})
 
-	t.Run("Given a valid funded authorization", func(t *testing.T) {
+	t.Run("Given a funded EIP-3009 authorization", func(t *testing.T) {
 		t.Parallel()
 
 		t.Run("Should send the transfer", func(t *testing.T) {
@@ -278,10 +260,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			txHash, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 
 			require.NoError(t, err)
 			_, _, err = suite.chain.Client.TransactionByHash(context.Background(), txHash)
@@ -297,17 +276,11 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 
 			firstHash, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				first.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, first))
 			require.NoError(t, err)
 			secondHash, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				second.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, second))
 
 			require.NoError(t, err)
 			firstTx, _, err := suite.chain.Client.TransactionByHash(context.Background(), firstHash)
@@ -315,6 +288,28 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			secondTx, _, err := suite.chain.Client.TransactionByHash(context.Background(), secondHash)
 			require.NoError(t, err)
 			assert.Equal(t, firstTx.Nonce()+1, secondTx.Nonce())
+		})
+	})
+
+	t.Run("Given a funded Permit2 authorization", func(t *testing.T) {
+		t.Parallel()
+
+		t.Run("Should pay the payee through Permit2", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			payment := suite.chain.FundedPermit2Payment(t, 1000).BuildPayment()
+
+			_, err := suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId,
+				suite.chain.TransferCall(t, payment),
+			)
+
+			require.NoError(t, err)
+			balance, err := suite.chain.Token.BalanceOf(payment.PayTo)
+			require.NoError(t, err)
+			assert.Equal(t, int64(1000), balance.Int64())
 		})
 	})
 }

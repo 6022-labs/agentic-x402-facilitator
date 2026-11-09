@@ -5,6 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	x402_facilitator_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services"
+	x402_facilitator_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services/interfaces"
+	"go.uber.org/zap"
+
 	apperrors "github.com/6022-labs/agentic-x402-facilitator/src/common/errors"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/use_cases"
@@ -29,12 +33,20 @@ func WhenVerifyingAPaymentBeforeEach(t *testing.T) *WhenVerifyingAPaymentTesting
 	mockPaymentVerifier := interfaces_mocks.NewMockPaymentVerifierInterface(mockController)
 	mockSettlementGuard := interfaces_mocks.NewMockSettlementGuardInterface(mockController)
 	mockFacilitatorMetrics := metrics_mocks.NewMockFacilitatorMetricsInterface(mockController)
+	strategies := x402_facilitator_services.NewAssetTransferMethodStrategies(
+		x402_facilitator_services.NewAssetTransferMethodStrategiesParams{
+			Strategies: []x402_facilitator_interfaces.AssetTransferMethodStrategyInterface{
+				x402_facilitator_services.NewEip3009AssetTransferMethodStrategy(zap.NewNop(), nil),
+			},
+		},
+	)
 
 	return &WhenVerifyingAPaymentTestingSuite{
 		mockPaymentVerifier:    mockPaymentVerifier,
 		mockSettlementGuard:    mockSettlementGuard,
 		mockFacilitatorMetrics: mockFacilitatorMetrics,
 		sut: use_cases.NewVerifyPayment(
+			strategies,
 			mockPaymentVerifier,
 			mockSettlementGuard,
 			mockFacilitatorMetrics,
@@ -81,6 +93,36 @@ func TestWhenVerifyingAPayment(t *testing.T) {
 			assert.False(t, response.IsValid)
 			assert.Equal(t, enums.PaymentReasonInvalidX402Version.String(), response.InvalidReason)
 			assert.Equal(t, builder.Payer().Hex(), response.Payer)
+		})
+	})
+
+	t.Run("Given no strategy settles the requested transfer method", func(t *testing.T) {
+		t.Parallel()
+
+		request := model_builders.NewPaymentRequestBuilder().WithPermit2().BuildVerifyRequest()
+
+		initSuite := func(suite *WhenVerifyingAPaymentTestingSuite) {
+			suite.mockFacilitatorMetrics.EXPECT().
+				RecordVerification(
+					gomock.Any(),
+					gomock.Nil(),
+					false,
+					enums.PaymentReasonInvalidPaymentRequirements.String(),
+					gomock.Any(),
+					nil,
+				)
+		}
+
+		t.Run("Should refuse the requirements", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenVerifyingAPaymentBeforeEach(t)
+			initSuite(suite)
+
+			response, err := suite.sut.Execute(context.Background(), request)
+
+			assert.NoError(t, err)
+			assert.Equal(t, enums.PaymentReasonInvalidPaymentRequirements.String(), response.InvalidReason)
 		})
 	})
 

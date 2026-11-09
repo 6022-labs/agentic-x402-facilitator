@@ -62,6 +62,9 @@
                     "authorization": {
                         "$ref": "#/components/schemas/requests.Eip3009Authorization"
                     },
+                    "permit2Authorization": {
+                        "$ref": "#/components/schemas/requests.Permit2Authorization"
+                    },
                     "signature": {
                         "type": "string"
                     }
@@ -113,6 +116,51 @@
                         "type": "string"
                     },
                     "scheme": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.Permit2Authorization": {
+                "properties": {
+                    "deadline": {
+                        "type": "string"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "nonce": {
+                        "type": "string"
+                    },
+                    "permitted": {
+                        "$ref": "#/components/schemas/requests.Permit2TokenPermissions"
+                    },
+                    "spender": {
+                        "type": "string"
+                    },
+                    "witness": {
+                        "$ref": "#/components/schemas/requests.Permit2Witness"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.Permit2TokenPermissions": {
+                "properties": {
+                    "amount": {
+                        "type": "string"
+                    },
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "requests.Permit2Witness": {
+                "properties": {
+                    "to": {
+                        "type": "string"
+                    },
+                    "validAfter": {
                         "type": "string"
                     }
                 },

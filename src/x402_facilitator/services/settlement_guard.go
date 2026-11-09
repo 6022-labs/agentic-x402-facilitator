@@ -59,7 +59,7 @@ func (g *SettlementGuard) RememberTransaction(
 	return g.cacheStorage.Store(
 		context.WithoutCancel(ctx),
 		g.transactionKey(payment.SettlementKey()),
-		txHash.Hex()+" "+payment.Authorization.Terms(),
+		txHash.Hex()+" "+payment.Terms(),
 		ttl,
 	)
 }
@@ -70,7 +70,7 @@ func (g *SettlementGuard) RememberedTransaction(ctx context.Context, payment *mo
 		return nil, err
 	}
 	hash, terms, _ := strings.Cut(*stored, " ")
-	if terms != payment.Authorization.Terms() {
+	if terms != payment.Terms() {
 		return nil, apperrors.NewInvalidPaymentError(
 			enums.PaymentReasonInvalidTransactionState,
 			"this nonce was already used by another authorization",

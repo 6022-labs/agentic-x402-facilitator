@@ -1,7 +1,7 @@
 <!-- Canonical 6022-labs Go engineering rules. Kept consistent across all agentic Go repos; minor per-repo drift is OK. -->
 # CLAUDE.md — agentic-x402-facilitator
 
-An x402 v2 facilitator: verifies and settles `exact` EIP-3009 payments from a relayer wallet held in Vault, free for registered 6022 agent addresses. A 6022-labs Go service — follow the canonical 6022-labs rules below. This file is **self-contained**: it depends on no external plugin, skill, or shared file.
+An x402 v2 facilitator: verifies and settles `exact` payments (EIP-3009 or Permit2) from a relayer wallet held in Vault, free for registered 6022 agent addresses. A 6022-labs Go service — follow the canonical 6022-labs rules below. This file is **self-contained**: it depends on no external plugin, skill, or shared file.
 
 ## 1. Comments — write fewer, make them sharp
 - **One line, max.** Exception: an interface or interface method may use two. Never a multi-line/multi-paragraph doc block.
@@ -91,13 +91,13 @@ If any box is unchecked, the work isn't done — finish it before presenting.
 ---
 
 ## Module specifics
-- Modules: `x402_facilitator` (domain; x402 wire types live in `use_cases/requests` and never reference `models` (the use cases map them onto `models.Payment`), reason codes in `models/enums`, EIP-712 hashing in `helpers`), `x402_facilitator_blockchain` (RPC, relayer transactions, agent registry lookup), `x402_facilitator_redis` (shared cache and locks), `x402_facilitator_vault` (relayer key), `x402_facilitator_mvc`, `x402_facilitator_host`.
+- Modules: `x402_facilitator` (domain; x402 wire types live in `use_cases/requests` and never reference `models` (each method's strategy maps them onto `models.Payment`), reason codes in `models/enums`, EIP-712 hashing in `helpers`), `x402_facilitator_blockchain` (RPC, relayer transactions, agent registry lookup), `x402_facilitator_redis` (shared cache and locks), `x402_facilitator_vault` (relayer key), `x402_facilitator_mvc`, `x402_facilitator_host`.
 - Scales horizontally: all shared state lives in Redis, never in process memory.
   - Payee lookup cache.
   - `SettlementGuard`: a per-authorization lock while broadcasting, then the tx hash with the signed terms (other terms under the same nonce are refused) until `validBefore` (at least the lock TTL, at most an hour). It is checked after the local signature check (so only the signer's own request reads it), before the full verification, and again under the lock; `/verify` refuses an authorization already sent; a retry gets that tx as pending, or as already settled (never `success: true`, which would pay a replay).
   - The relayer's per-chain send lock and each signed tx kept per nonce: the next nonce is the first one from `PendingNonceAt` with no kept tx, resending the kept ones on the way so a lost one is put back; signing and sending have their own deadlines inside the lock TTL.
 - `settlement.lock_ttl_seconds` must exceed every chain's `MaxSettlementDuration`, checked at startup.
-- Only `exact` + EIP-3009 (`transferWithAuthorization(v,r,s)`); the EIP-712 domain comes from `tokens.<chain>.<address>`, never from the request's `extra`.
+- Only `exact`, settled per `assetTransferMethod` by an `AssetTransferMethodStrategyInterface` (dig group `asset_transfer_method_strategies`): it reads its payload from the request, checks the signature and its on-chain state, and builds the relayer's `TransferCall`. The verifier, the settle use case and the `TransferSubmitter` stay method-agnostic. `eip3009` calls `transferWithAuthorization(v,r,s)`, with the EIP-712 domain from `tokens.<chain>.<address>`, never the request's `extra`; `permit2` calls `x402ExactPermit2Proxy.settle`. A token lists its methods in `asset_transfer_methods`. New method = enum value + wire fields in `requests` + its case in `PaymentRequest.Payer` + one strategy provided in that dig group.
 - Accepts the v2 payload (`accepted`) and the legacy top-level `scheme`/`network` agent-node still sends.
 - `access.agents_only`: payTo must be a registered EVM address of a 6022 agent, found through `AgentCollectionsManager.findAgentByAddress` on every configured chain that has one (manager addresses baked in `agent_collections_managers.json`); startup refuses any mix of testnet and mainnet across the configured chains (`chains.<id>.testnet`, required on every chain).
 - Bindings: `make abi` (abigen). Integration tests (`make integration-test`) deploy the contracts in `tests/x402_facilitator_blockchain_integration_tests/fixtures` on anvil.

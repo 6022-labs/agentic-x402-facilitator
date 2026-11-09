@@ -19,7 +19,7 @@ import (
 
 type WhenReadingATransferStatusTestingSuite struct {
 	chain *fixtures.IntegrationChain
-	sut   *blockchain_services.Eip3009TransferSubmitter
+	sut   *blockchain_services.TransferSubmitter
 }
 
 func WhenReadingATransferStatusBeforeEach(t *testing.T) *WhenReadingATransferStatusTestingSuite {
@@ -34,7 +34,7 @@ func WhenReadingATransferStatusBeforeEach(t *testing.T) *WhenReadingATransferSta
 
 	return &WhenReadingATransferStatusTestingSuite{
 		chain: chain,
-		sut: blockchain_services.NewEip3009TransferSubmitter(
+		sut: blockchain_services.NewTransferSubmitter(
 			chain.EthClientFactory,
 			chain.TransactorFactory,
 			chain.ChainsSettings,
@@ -92,10 +92,7 @@ func TestWhenReadingATransferStatus(t *testing.T) {
 			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
 			txHash, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 			require.NoError(t, err)
 			_, err = suite.sut.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
 			require.NoError(t, err)
@@ -118,10 +115,7 @@ func TestWhenReadingATransferStatus(t *testing.T) {
 			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
 			txHash, err := suite.sut.Broadcast(
 				context.Background(),
-				suite.chain.ChainId,
-				suite.chain.Token.Address,
-				payment.Authorization,
-			)
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 			require.NoError(t, err)
 			_, err = suite.sut.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
 			require.NoError(t, err)

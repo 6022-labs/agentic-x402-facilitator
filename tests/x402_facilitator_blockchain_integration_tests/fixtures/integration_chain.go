@@ -6,6 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/helpers"
+	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models"
+	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
+	x402_facilitator_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services"
+	x402_facilitator_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services/interfaces"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/factory"
 	blockchain_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/settings"
 	redis_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_redis/services"
@@ -14,6 +19,7 @@ import (
 	blockchain_metrics_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_blockchain_mocks/metrics_mocks/interfaces_mocks"
 	interfaces_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_mocks/services_mocks/interfaces_mocks"
 	redis_metrics_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_redis_mocks/metrics_mocks/interfaces_mocks"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -96,4 +102,28 @@ func (c *IntegrationChain) FundedPayment(t *testing.T, balance int64) *model_bui
 		WithAmount("1000")
 	require.NoError(t, c.Token.Mint(builder.Payer(), big.NewInt(balance)))
 	return builder
+}
+
+// FundedPermit2Payment is FundedPayment paid through Permit2, which the payer approved for the whole balance.
+func (c *IntegrationChain) FundedPermit2Payment(t *testing.T, balance int64) *model_builders.PaymentRequestBuilder {
+	require.NoError(t, InstallPermit2(context.Background(), c.Client))
+	builder := c.FundedPayment(t, balance).WithPermit2()
+	require.NoError(t, c.Token.SetAllowance(
+		builder.Payer(),
+		common.HexToAddress(helpers.Permit2Address),
+		big.NewInt(balance),
+	))
+	return builder
+}
+
+// TransferCall is the settlement call the facilitator's strategy builds for the payment.
+func (c *IntegrationChain) TransferCall(t *testing.T, payment *models.Payment) *models.TransferCall {
+	var strategy x402_facilitator_interfaces.AssetTransferMethodStrategyInterface = x402_facilitator_services.
+		NewEip3009AssetTransferMethodStrategy(zap.NewNop(), nil)
+	if payment.Method == enums.AssetTransferMethodPermit2 {
+		strategy = x402_facilitator_services.NewPermit2AssetTransferMethodStrategy(zap.NewNop(), nil, nil)
+	}
+	call, err := strategy.TransferCall(payment)
+	require.NoError(t, err)
+	return call
 }

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	apperrors "github.com/6022-labs/agentic-x402-facilitator/src/common/errors"
-
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
 	x402_facilitator_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services"
 	x402_facilitator_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/settings"
@@ -19,22 +18,37 @@ import (
 )
 
 type WhenVerifyingAPaymentAuthorizationTestingSuite struct {
-	sut *x402_facilitator_services.PaymentVerifier
+	mockStrategies *interfaces_mocks.MockAssetTransferMethodStrategiesInterface
+	mockStrategy   *interfaces_mocks.MockAssetTransferMethodStrategyInterface
+	sut            *x402_facilitator_services.PaymentVerifier
 }
 
+// WhenVerifyingAPaymentAuthorizationBeforeEach configures asset for both methods.
 func WhenVerifyingAPaymentAuthorizationBeforeEach(
 	t *testing.T,
 	asset common.Address,
 ) *WhenVerifyingAPaymentAuthorizationTestingSuite {
 	mockController := gomock.NewController(t)
+	mockStrategies := interfaces_mocks.NewMockAssetTransferMethodStrategiesInterface(mockController)
 
 	return &WhenVerifyingAPaymentAuthorizationTestingSuite{
+		mockStrategies: mockStrategies,
+		mockStrategy:   interfaces_mocks.NewMockAssetTransferMethodStrategyInterface(mockController),
 		sut: x402_facilitator_services.NewPaymentVerifier(
 			&x402_facilitator_settings.TokensSettings{
-				80002: {asset: {Eip712Name: "USDC", Eip712Version: "2"}},
+				80002: {asset: {
+					AssetTransferMethods: []enums.AssetTransferMethod{
+						enums.AssetTransferMethodEip3009,
+						enums.AssetTransferMethodPermit2,
+					},
+					Eip712Name:    "USDC",
+					Eip712Version: "2",
+				}},
 			},
 			interfaces_mocks.NewMockPayToEligibilityCheckerInterface(mockController),
-			interfaces_mocks.NewMockEip3009TokenRequesterInterface(mockController),
+			mockStrategies,
+			interfaces_mocks.NewMockTokenRequesterInterface(mockController),
+			interfaces_mocks.NewMockTransferSubmitterInterface(mockController),
 		),
 	}
 }
@@ -85,20 +99,47 @@ func TestWhenVerifyingAPaymentAuthorization(t *testing.T) {
 		})
 	})
 
-	t.Run("Given a payee other than the one signed", func(t *testing.T) {
+	t.Run("Given no strategy settles the payment's transfer method", func(t *testing.T) {
 		t.Parallel()
 
-		payment := builder().BuildPayment()
-		payment.Authorization.To = common_tests.RandomEthAddress()
+		payment := builder().WithPermit2().BuildPayment()
 
-		t.Run("Should refuse the signature", func(t *testing.T) {
+		initSuite := func(suite *WhenVerifyingAPaymentAuthorizationTestingSuite) {
+			suite.mockStrategies.EXPECT().For(enums.AssetTransferMethodPermit2).Return(nil, false)
+		}
+
+		t.Run("Should refuse the requirements", func(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenVerifyingAPaymentAuthorizationBeforeEach(t, asset)
+			initSuite(suite)
 
 			err := suite.sut.VerifyAuthorization(payment)
 
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidSignature.String())
+			suite.assertInvalid(t, err, enums.PaymentReasonInvalidPaymentRequirements.String())
+		})
+	})
+
+	t.Run("Given the strategy refuses the signature", func(t *testing.T) {
+		t.Parallel()
+
+		payment := builder().BuildPayment()
+		signatureErr := apperrors.NewInvalidPaymentError(enums.PaymentReasonInvalidSignature, "signature mismatch")
+
+		initSuite := func(suite *WhenVerifyingAPaymentAuthorizationTestingSuite) {
+			suite.mockStrategies.EXPECT().For(enums.AssetTransferMethodEip3009).Return(suite.mockStrategy, true)
+			suite.mockStrategy.EXPECT().VerifySignature(payment, gomock.Any()).Return(signatureErr)
+		}
+
+		t.Run("Should return the strategy's refusal", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenVerifyingAPaymentAuthorizationBeforeEach(t, asset)
+			initSuite(suite)
+
+			err := suite.sut.VerifyAuthorization(payment)
+
+			assert.Same(t, signatureErr, err)
 		})
 	})
 
@@ -107,10 +148,16 @@ func TestWhenVerifyingAPaymentAuthorization(t *testing.T) {
 
 		payment := builder().WithValidBefore(time.Now().Unix() - 60).BuildPayment()
 
+		initSuite := func(suite *WhenVerifyingAPaymentAuthorizationTestingSuite) {
+			suite.mockStrategies.EXPECT().For(enums.AssetTransferMethodEip3009).Return(suite.mockStrategy, true)
+			suite.mockStrategy.EXPECT().VerifySignature(payment, gomock.Any()).Return(nil)
+		}
+
 		t.Run("Should accept it", func(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenVerifyingAPaymentAuthorizationBeforeEach(t, asset)
+			initSuite(suite)
 
 			err := suite.sut.VerifyAuthorization(payment)
 

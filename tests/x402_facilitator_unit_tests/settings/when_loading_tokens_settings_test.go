@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
 	x402_facilitator_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/settings"
 	"github.com/6022-labs/agentic-x402-facilitator/tests/common_tests"
 	"github.com/ethereum/go-ethereum/common"
@@ -113,12 +114,12 @@ func TestWhenLoadingTokensSettings(t *testing.T) {
 		})
 	})
 
-	t.Run("Given a token without its EIP-712 name", func(t *testing.T) {
+	t.Run("Given a token with an unknown asset transfer method", func(t *testing.T) {
 		t.Parallel()
 
 		k := koanf.New(".")
 		require.NoError(t, k.Load(confmap.Provider(map[string]any{
-			"tokens.80002." + amoyUsdc + ".eip712_version": "2",
+			"tokens.80002." + amoyUsdc + ".asset_transfer_methods": "permit2,erc7710",
 		}, "."), nil))
 
 		t.Run("Should fatal", func(t *testing.T) {
@@ -130,12 +131,13 @@ func TestWhenLoadingTokensSettings(t *testing.T) {
 		})
 	})
 
-	t.Run("Given a token without its EIP-712 version", func(t *testing.T) {
+	t.Run("Given an eip3009 token without its EIP-712 name", func(t *testing.T) {
 		t.Parallel()
 
 		k := koanf.New(".")
 		require.NoError(t, k.Load(confmap.Provider(map[string]any{
-			"tokens.80002." + amoyUsdc + ".eip712_name": "USDC",
+			"tokens.80002." + amoyUsdc + ".asset_transfer_methods": "eip3009",
+			"tokens.80002." + amoyUsdc + ".eip712_version":         "2",
 		}, "."), nil))
 
 		t.Run("Should fatal", func(t *testing.T) {
@@ -144,6 +146,63 @@ func TestWhenLoadingTokensSettings(t *testing.T) {
 			assert.Panics(t, func() {
 				x402_facilitator_settings.NewTokensSettings(suite.panicLogger(), k)
 			})
+		})
+	})
+
+	t.Run("Given an eip3009 token without its EIP-712 version", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		require.NoError(t, k.Load(confmap.Provider(map[string]any{
+			"tokens.80002." + amoyUsdc + ".asset_transfer_methods": "eip3009",
+			"tokens.80002." + amoyUsdc + ".eip712_name":            "USDC",
+		}, "."), nil))
+
+		t.Run("Should fatal", func(t *testing.T) {
+			t.Parallel()
+
+			assert.Panics(t, func() {
+				x402_facilitator_settings.NewTokensSettings(suite.panicLogger(), k)
+			})
+		})
+	})
+
+	t.Run("Given a token without asset transfer methods", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		require.NoError(t, k.Load(confmap.Provider(map[string]any{
+			"tokens.80002." + amoyUsdc + ".eip712_name":    "USDC",
+			"tokens.80002." + amoyUsdc + ".eip712_version": "2",
+		}, "."), nil))
+
+		t.Run("Should settle it with eip3009", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewTokensSettings(zap.NewNop(), k)
+
+			token := result.Get(80002, common.HexToAddress(amoyUsdc))
+			require.NotNil(t, token)
+			assert.Equal(t, []enums.AssetTransferMethod{enums.AssetTransferMethodEip3009}, token.AssetTransferMethods)
+		})
+	})
+
+	t.Run("Given a permit2 token without an EIP-712 domain", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		require.NoError(t, k.Load(confmap.Provider(map[string]any{
+			"tokens.80002." + amoyUsdc + ".asset_transfer_methods": "permit2",
+		}, "."), nil))
+
+		t.Run("Should load it", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewTokensSettings(zap.NewNop(), k)
+
+			token := result.Get(80002, common.HexToAddress(amoyUsdc))
+			require.NotNil(t, token)
+			assert.Equal(t, []enums.AssetTransferMethod{enums.AssetTransferMethodPermit2}, token.AssetTransferMethods)
 		})
 	})
 
@@ -152,9 +211,24 @@ func TestWhenLoadingTokensSettings(t *testing.T) {
 
 		k := koanf.New(".")
 		require.NoError(t, k.Load(confmap.Provider(map[string]any{
-			"tokens.80002." + amoyUsdc + ".eip712_name":    " USDC ",
-			"tokens.80002." + amoyUsdc + ".eip712_version": "2",
+			"tokens.80002." + amoyUsdc + ".asset_transfer_methods": "eip3009, permit2",
+			"tokens.80002." + amoyUsdc + ".eip712_name":            " USDC ",
+			"tokens.80002." + amoyUsdc + ".eip712_version":         "2",
 		}, "."), nil))
+
+		t.Run("Should expose its methods", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewTokensSettings(zap.NewNop(), k)
+
+			token := result.Get(80002, common.HexToAddress(amoyUsdc))
+			require.NotNil(t, token)
+			assert.Equal(
+				t,
+				[]enums.AssetTransferMethod{enums.AssetTransferMethodEip3009, enums.AssetTransferMethodPermit2},
+				token.AssetTransferMethods,
+			)
+		})
 
 		t.Run("Should expose its trimmed EIP-712 domain", func(t *testing.T) {
 			t.Parallel()
@@ -173,8 +247,7 @@ func TestWhenLoadingTokensSettings(t *testing.T) {
 
 		k := koanf.New(".")
 		require.NoError(t, k.Load(confmap.Provider(map[string]any{
-			"tokens.80002." + strings.ToLower(amoyUsdc) + ".eip712_name":    "USDC",
-			"tokens.80002." + strings.ToLower(amoyUsdc) + ".eip712_version": "2",
+			"tokens.80002." + strings.ToLower(amoyUsdc) + ".asset_transfer_methods": "permit2",
 		}, "."), nil))
 
 		t.Run("Should find it by its checksummed address", func(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	apperrors "github.com/6022-labs/agentic-x402-facilitator/src/common/errors"
 
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
-	"github.com/6022-labs/agentic-x402-facilitator/tests/common_tests"
 	"github.com/6022-labs/agentic-x402-facilitator/tests/common_tests/model_builders"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -162,11 +161,11 @@ func TestWhenValidatingAPaymentRequest(t *testing.T) {
 		})
 	})
 
-	t.Run("Given the requirements ask for another asset transfer method", func(t *testing.T) {
+	t.Run("Given an unknown asset transfer method", func(t *testing.T) {
 		t.Parallel()
 
 		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentRequirements.Extra["assetTransferMethod"] = "permit2"
+		request.PaymentRequirements.Extra["assetTransferMethod"] = "erc7710"
 
 		t.Run("Should refuse the requirements", func(t *testing.T) {
 			t.Parallel()
@@ -254,108 +253,18 @@ func TestWhenValidatingAPaymentRequest(t *testing.T) {
 		})
 	})
 
-	t.Run("Given the authorization is missing", func(t *testing.T) {
+	t.Run("Given the accepted requirements echo another asset transfer method", func(t *testing.T) {
 		t.Parallel()
 
 		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Authorization = nil
+		request.PaymentPayload.Accepted.Extra = map[string]any{"assetTransferMethod": "permit2"}
 
-		t.Run("Should refuse it as an invalid payload", func(t *testing.T) {
+		t.Run("Should refuse the requirements", func(t *testing.T) {
 			t.Parallel()
 
 			err := request.ValidateAndSanitize()
 
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidPayload.String())
-		})
-	})
-
-	t.Run("Given the authorization from is not an address", func(t *testing.T) {
-		t.Parallel()
-
-		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Authorization.From = "payer"
-
-		t.Run("Should refuse it as an invalid payload", func(t *testing.T) {
-			t.Parallel()
-
-			err := request.ValidateAndSanitize()
-
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidPayload.String())
-		})
-	})
-
-	t.Run("Given the authorization validBefore is not a decimal integer", func(t *testing.T) {
-		t.Parallel()
-
-		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Authorization.ValidBefore = "soon"
-
-		t.Run("Should refuse it as an invalid payload", func(t *testing.T) {
-			t.Parallel()
-
-			err := request.ValidateAndSanitize()
-
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidPayload.String())
-		})
-	})
-
-	t.Run("Given the authorization nonce is not 32 bytes", func(t *testing.T) {
-		t.Parallel()
-
-		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Authorization.Nonce = "0x01"
-
-		t.Run("Should refuse it as an invalid payload", func(t *testing.T) {
-			t.Parallel()
-
-			err := request.ValidateAndSanitize()
-
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidPayload.String())
-		})
-	})
-
-	t.Run("Given the signature is not 65 bytes", func(t *testing.T) {
-		t.Parallel()
-
-		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Signature = "0xdeadbeef"
-
-		t.Run("Should refuse the signature", func(t *testing.T) {
-			t.Parallel()
-
-			err := request.ValidateAndSanitize()
-
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidSignature.String())
-		})
-	})
-
-	t.Run("Given the authorization pays someone other than payTo", func(t *testing.T) {
-		t.Parallel()
-
-		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Authorization.To = common_tests.RandomEthAddress().Hex()
-
-		t.Run("Should refuse the recipient", func(t *testing.T) {
-			t.Parallel()
-
-			err := request.ValidateAndSanitize()
-
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidRecipient.String())
-		})
-	})
-
-	t.Run("Given the authorization value differs from the amount", func(t *testing.T) {
-		t.Parallel()
-
-		request := model_builders.NewPaymentRequestBuilder().Build()
-		request.PaymentPayload.Payload.Authorization.Value = "999"
-
-		t.Run("Should refuse the value", func(t *testing.T) {
-			t.Parallel()
-
-			err := request.ValidateAndSanitize()
-
-			suite.assertInvalid(t, err, enums.PaymentReasonInvalidAuthorizationValue.String())
+			suite.assertInvalid(t, err, enums.PaymentReasonInvalidPaymentRequirements.String())
 		})
 	})
 
@@ -377,6 +286,20 @@ func TestWhenValidatingAPaymentRequest(t *testing.T) {
 		t.Parallel()
 
 		request := model_builders.NewPaymentRequestBuilder().Build()
+
+		t.Run("Should accept it", func(t *testing.T) {
+			t.Parallel()
+
+			err := request.ValidateAndSanitize()
+
+			assert.NoError(t, err)
+		})
+	})
+
+	t.Run("Given a valid Permit2 payment", func(t *testing.T) {
+		t.Parallel()
+
+		request := model_builders.NewPaymentRequestBuilder().WithPermit2().Build()
 
 		t.Run("Should accept it", func(t *testing.T) {
 			t.Parallel()

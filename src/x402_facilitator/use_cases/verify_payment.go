@@ -16,18 +16,20 @@ import (
 )
 
 type VerifyPayment struct {
-	paymentRequestMapper
+	paymentReader
 	paymentVerifier    x402_facilitator_interfaces.PaymentVerifierInterface
 	settlementGuard    x402_facilitator_interfaces.SettlementGuardInterface
 	facilitatorMetrics metrics_interfaces.FacilitatorMetricsInterface
 }
 
 func NewVerifyPayment(
+	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface,
 	paymentVerifier x402_facilitator_interfaces.PaymentVerifierInterface,
 	settlementGuard x402_facilitator_interfaces.SettlementGuardInterface,
 	facilitatorMetrics metrics_interfaces.FacilitatorMetricsInterface,
 ) *VerifyPayment {
 	return &VerifyPayment{
+		paymentReader:      paymentReader{assetTransferMethodStrategies: assetTransferMethodStrategies},
 		paymentVerifier:    paymentVerifier,
 		settlementGuard:    settlementGuard,
 		facilitatorMetrics: facilitatorMetrics,
@@ -41,9 +43,12 @@ func (u *VerifyPayment) Execute(
 	start := time.Now()
 
 	var payment *models.Payment
-	response, err := u.invalid(request.ValidateAndSanitize(), request)
+	err := request.ValidateAndSanitize()
+	if err == nil {
+		payment, err = u.payment(&request.PaymentRequest)
+	}
+	response, err := u.invalid(err, request)
 	if response == nil && err == nil {
-		payment = u.toPayment(&request.PaymentRequest)
 		response, err = u.verify(ctx, request, payment)
 	}
 

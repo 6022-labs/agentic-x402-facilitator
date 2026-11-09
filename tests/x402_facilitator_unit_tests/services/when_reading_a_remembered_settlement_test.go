@@ -91,7 +91,7 @@ func TestWhenReadingARememberedSettlement(t *testing.T) {
 		t.Parallel()
 
 		other := model_builders.NewPaymentRequestBuilder().WithAmount("2").BuildPayment()
-		stored := common.HexToHash("0xabc").Hex() + " " + other.Authorization.Terms()
+		stored := common.HexToHash("0xabc").Hex() + " " + other.Terms()
 
 		initSuite := func(suite *WhenReadingARememberedSettlementTestingSuite) {
 			suite.mockCacheStorage.EXPECT().ReadString(gomock.Any(), txKey).Return(&stored, nil)
@@ -115,7 +115,7 @@ func TestWhenReadingARememberedSettlement(t *testing.T) {
 	t.Run("Given a transaction is remembered", func(t *testing.T) {
 		t.Parallel()
 
-		stored := common.HexToHash("0xabc").Hex() + " " + payment.Authorization.Terms()
+		stored := common.HexToHash("0xabc").Hex() + " " + payment.Terms()
 
 		initSuite := func(suite *WhenReadingARememberedSettlementTestingSuite) {
 			suite.mockCacheStorage.EXPECT().ReadString(gomock.Any(), txKey).Return(&stored, nil)

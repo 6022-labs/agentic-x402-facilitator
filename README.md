@@ -55,7 +55,7 @@ sequenceDiagram
     F-->>S: valid
     Note over S: does the work
     S->>F: POST /settle
-    F->>T: transferWithAuthorization, paid by the facilitator
+    F->>T: transferWithAuthorization or the Permit2 proxy, paid by the facilitator
     T-->>F: receipt
     F-->>S: settled, with the transaction
     S-->>C: answer + payment receipt
@@ -89,8 +89,16 @@ A retry of a payment already sent is not sent again, and `/verify` refuses it. Y
 `invalid_transaction_state`. It is never `success: true` a second time, or a replayed payment
 would get served: check the hash on-chain instead.
 
-It settles `exact` payments signed with EIP-3009, the method USDC uses. Other payment methods
-(Permit2, ERC-7710) and smart-contract wallet signatures are refused.
+It settles `exact` payments in two ways, the payment's `assetTransferMethod`:
+
+- `eip3009`: the token's own `transferWithAuthorization`, the method USDC uses.
+- `permit2`: [Permit2](https://github.com/Uniswap/permit2) through the x402 proxy
+  `x402ExactPermit2Proxy` (`0x402085c248EeA27D92E8b30b2C58ed07f9E20001`), for any ERC-20 such as
+  $6022. The payer approves Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`) once; until
+  then payments get `permit2_allowance_required`. On a chain without the proxy they get
+  `permit2_proxy_not_deployed`.
+
+ERC-7710 and smart-contract wallet signatures are refused.
 
 ## Configuration
 
@@ -108,8 +116,9 @@ annotated template.
 | `chains.<id>.confirmations` | `1` | Blocks to wait before a payment counts as settled. |
 | `chains.<id>.receipt_timeout_seconds` | `120` | How long `/settle` waits before answering `settlement_pending`. |
 | `chains.<id>.testnet` | — | Required: `true` on a testnet, `false` on a mainnet. |
-| `tokens.<id>.<address>.eip712_name` | — | The token's EIP-712 name, `USDC` for Circle's USDC. |
-| `tokens.<id>.<address>.eip712_version` | — | The token's EIP-712 version, `2` for USDC. |
+| `tokens.<id>.<address>.asset_transfer_methods` | `eip3009` | `eip3009`, `permit2`, or both comma-separated. |
+| `tokens.<id>.<address>.eip712_name` | — | With `eip3009`: the token's EIP-712 name, `USDC` for Circle's USDC. |
+| `tokens.<id>.<address>.eip712_version` | — | With `eip3009`: the token's EIP-712 version, `2` for USDC. |
 
 Only the tokens listed here are settled. Write their addresses in lowercase, as environment
 variables arrive lowercased: the service refuses to start on a token configured twice.

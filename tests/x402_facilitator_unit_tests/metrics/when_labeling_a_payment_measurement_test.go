@@ -195,6 +195,16 @@ func TestWhenLabelingAPaymentMeasurement(t *testing.T) {
 			assert.Equal(t, "settled", labels["x402.outcome"])
 		})
 
+		t.Run("Should label its asset transfer method", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenLabelingAPaymentMeasurementBeforeEach(asset, true)
+
+			labels := suite.labels(suite.sut.Attributes(payment, true, "settled", nil))
+
+			assert.Equal(t, "eip3009", labels["x402.asset_transfer_method"])
+		})
+
 		t.Run("Should label its payee", func(t *testing.T) {
 			t.Parallel()
 

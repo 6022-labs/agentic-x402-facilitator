@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// TransferAuthorization is a parsed EIP-3009 TransferWithAuthorization with its 65-byte signature.
+// TransferAuthorization is what the payer signed; for Permit2, ValidBefore is the deadline, Nonce a uint256.
 type TransferAuthorization struct {
 	From        common.Address
 	To          common.Address
@@ -18,6 +18,10 @@ type TransferAuthorization struct {
 	ValidBefore *big.Int
 	Nonce       [32]byte
 	Signature   []byte
+}
+
+func (a *TransferAuthorization) NonceInt() *big.Int {
+	return new(big.Int).SetBytes(a.Nonce[:])
 }
 
 // Terms is what the payer signed besides (from, nonce): a payer can sign other terms under a used nonce.

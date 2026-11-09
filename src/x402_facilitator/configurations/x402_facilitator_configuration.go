@@ -10,6 +10,8 @@ import (
 	"go.uber.org/dig"
 )
 
+const assetTransferMethodStrategiesGroup = "asset_transfer_method_strategies"
+
 func AddX402FacilitatorConfiguration(container *dig.Container) {
 	if err := container.Provide(x402_facilitator_settings.NewTokensSettings); err != nil {
 		panic(err)
@@ -33,6 +35,29 @@ func AddX402FacilitatorConfiguration(container *dig.Container) {
 	if err := container.Provide(
 		x402_facilitator_services.NewPayToEligibilityChecker,
 		dig.As(new(x402_facilitator_interfaces.PayToEligibilityCheckerInterface)),
+	); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(
+		x402_facilitator_services.NewAssetTransferMethodStrategies,
+		dig.As(new(x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface)),
+	); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(
+		x402_facilitator_services.NewEip3009AssetTransferMethodStrategy,
+		dig.Group(assetTransferMethodStrategiesGroup),
+		dig.As(new(x402_facilitator_interfaces.AssetTransferMethodStrategyInterface)),
+	); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(
+		x402_facilitator_services.NewPermit2AssetTransferMethodStrategy,
+		dig.Group(assetTransferMethodStrategiesGroup),
+		dig.As(new(x402_facilitator_interfaces.AssetTransferMethodStrategyInterface)),
 	); err != nil {
 		panic(err)
 	}
