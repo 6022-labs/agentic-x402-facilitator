@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"testing"
 
+	x402_facilitator_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services"
+	x402_facilitator_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services/interfaces"
+	"go.uber.org/zap"
+
 	apperrors "github.com/6022-labs/agentic-x402-facilitator/src/common/errors"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
@@ -21,29 +25,38 @@ import (
 )
 
 type WhenSettlingAPaymentTestingSuite struct {
-	mockPaymentVerifier          *interfaces_mocks.MockPaymentVerifierInterface
-	mockSettlementGuard          *interfaces_mocks.MockSettlementGuardInterface
-	mockEip3009TransferSubmitter *interfaces_mocks.MockEip3009TransferSubmitterInterface
-	mockFacilitatorMetrics       *metrics_mocks.MockFacilitatorMetricsInterface
-	sut                          *use_cases.SettlePayment
+	mockPaymentVerifier    *interfaces_mocks.MockPaymentVerifierInterface
+	mockSettlementGuard    *interfaces_mocks.MockSettlementGuardInterface
+	mockTransferSubmitter  *interfaces_mocks.MockTransferSubmitterInterface
+	mockFacilitatorMetrics *metrics_mocks.MockFacilitatorMetricsInterface
+	sut                    *use_cases.SettlePayment
 }
 
 func WhenSettlingAPaymentBeforeEach(t *testing.T) *WhenSettlingAPaymentTestingSuite {
 	mockController := gomock.NewController(t)
 	mockPaymentVerifier := interfaces_mocks.NewMockPaymentVerifierInterface(mockController)
 	mockSettlementGuard := interfaces_mocks.NewMockSettlementGuardInterface(mockController)
-	mockEip3009TransferSubmitter := interfaces_mocks.NewMockEip3009TransferSubmitterInterface(mockController)
+	mockTransferSubmitter := interfaces_mocks.NewMockTransferSubmitterInterface(mockController)
+	strategies := x402_facilitator_services.NewAssetTransferMethodStrategies(
+		x402_facilitator_services.NewAssetTransferMethodStrategiesParams{
+			Strategies: []x402_facilitator_interfaces.AssetTransferMethodStrategyInterface{
+				x402_facilitator_services.NewEip3009AssetTransferMethodStrategy(zap.NewNop(), nil),
+			},
+		},
+	)
+
 	mockFacilitatorMetrics := metrics_mocks.NewMockFacilitatorMetricsInterface(mockController)
 
 	return &WhenSettlingAPaymentTestingSuite{
-		mockPaymentVerifier:          mockPaymentVerifier,
-		mockSettlementGuard:          mockSettlementGuard,
-		mockEip3009TransferSubmitter: mockEip3009TransferSubmitter,
-		mockFacilitatorMetrics:       mockFacilitatorMetrics,
+		mockPaymentVerifier:    mockPaymentVerifier,
+		mockSettlementGuard:    mockSettlementGuard,
+		mockTransferSubmitter:  mockTransferSubmitter,
+		mockFacilitatorMetrics: mockFacilitatorMetrics,
 		sut: use_cases.NewSettlePayment(
+			strategies,
 			mockPaymentVerifier,
 			mockSettlementGuard,
-			mockEip3009TransferSubmitter,
+			mockTransferSubmitter,
 			mockFacilitatorMetrics,
 		),
 	}
@@ -69,8 +82,8 @@ func (suite *WhenSettlingAPaymentTestingSuite) expectLocked(key string) {
 }
 
 func (suite *WhenSettlingAPaymentTestingSuite) expectBroadcast(txHash common.Hash, err error) {
-	suite.mockEip3009TransferSubmitter.EXPECT().
-		Broadcast(gomock.Any(), uint64(80002), gomock.Any(), gomock.Any()).
+	suite.mockTransferSubmitter.EXPECT().
+		Broadcast(gomock.Any(), uint64(80002), gomock.Any()).
 		Return(txHash, err)
 }
 
@@ -80,13 +93,13 @@ func (suite *WhenSettlingAPaymentTestingSuite) expectRememberedAndReleased(key s
 }
 
 func (suite *WhenSettlingAPaymentTestingSuite) expectAwaited(txHash common.Hash, status models.TransferStatus) {
-	suite.mockEip3009TransferSubmitter.EXPECT().
+	suite.mockTransferSubmitter.EXPECT().
 		AwaitTransfer(gomock.Any(), uint64(80002), txHash).
 		Return(&models.Transfer{TxHash: txHash, Status: status}, nil)
 }
 
 func (suite *WhenSettlingAPaymentTestingSuite) expectStatus(txHash common.Hash, status models.TransferStatus) {
-	suite.mockEip3009TransferSubmitter.EXPECT().
+	suite.mockTransferSubmitter.EXPECT().
 		TransferStatus(gomock.Any(), uint64(80002), txHash).
 		Return(&models.Transfer{TxHash: txHash, Status: status}, nil)
 }
@@ -152,6 +165,36 @@ func TestWhenSettlingAPayment(t *testing.T) {
 			response, err := suite.sut.Execute(context.Background(), request)
 
 			suite.assertRefused(t, response, err, enums.PaymentReasonInvalidX402Version.String(), "")
+		})
+	})
+
+	t.Run("Given no strategy settles the requested transfer method", func(t *testing.T) {
+		t.Parallel()
+
+		request := model_builders.NewPaymentRequestBuilder().WithPermit2().BuildSettleRequest()
+
+		initSuite := func(suite *WhenSettlingAPaymentTestingSuite) {
+			suite.mockFacilitatorMetrics.EXPECT().
+				RecordSettlement(
+					gomock.Any(),
+					gomock.Nil(),
+					false,
+					enums.PaymentReasonInvalidPaymentRequirements.String(),
+					gomock.Any(),
+					nil,
+				)
+		}
+
+		t.Run("Should refuse the requirements", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenSettlingAPaymentBeforeEach(t)
+			initSuite(suite)
+
+			response, err := suite.sut.Execute(context.Background(), request)
+
+			assert.NoError(t, err)
+			assert.Equal(t, enums.PaymentReasonInvalidPaymentRequirements.String(), response.ErrorReason)
 		})
 	})
 
@@ -242,7 +285,7 @@ func TestWhenSettlingAPayment(t *testing.T) {
 			suite.mockSettlementGuard.EXPECT().
 				RememberedTransaction(gomock.Any(), suite.paymentKeyed(key)).
 				Return(&txHash, nil)
-			suite.mockEip3009TransferSubmitter.EXPECT().
+			suite.mockTransferSubmitter.EXPECT().
 				TransferStatus(gomock.Any(), uint64(80002), txHash).
 				Return(nil, errors.New("rpc down"))
 			suite.expectFailure(false)
@@ -680,7 +723,7 @@ func TestWhenSettlingAPayment(t *testing.T) {
 			suite.expectLocked(key)
 			suite.expectBroadcast(txHash, nil)
 			suite.expectRememberedAndReleased(key, txHash)
-			suite.mockEip3009TransferSubmitter.EXPECT().
+			suite.mockTransferSubmitter.EXPECT().
 				AwaitTransfer(gomock.Any(), uint64(80002), txHash).
 				Return(nil, errors.New("no RPC"))
 			suite.expectFailure(true)

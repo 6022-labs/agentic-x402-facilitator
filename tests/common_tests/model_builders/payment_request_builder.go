@@ -17,7 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// PaymentRequestBuilder builds an x402 v2 exact EIP-3009 payment signed by a fresh payer key.
+// PaymentRequestBuilder builds an x402 v2 exact payment, EIP-3009 unless WithPermit2, signed by a fresh payer key.
 type PaymentRequestBuilder struct {
 	payerKey      *ecdsa.PrivateKey
 	chainId       uint64
@@ -31,6 +31,7 @@ type PaymentRequestBuilder struct {
 	eip712Version string
 	legacy        bool
 	rawRecoveryId bool
+	method        enums.AssetTransferMethod
 }
 
 func NewPaymentRequestBuilder() *PaymentRequestBuilder {
@@ -54,7 +55,13 @@ func NewPaymentRequestBuilder() *PaymentRequestBuilder {
 		nonce:         nonce,
 		eip712Name:    "USDC",
 		eip712Version: "2",
+		method:        enums.AssetTransferMethodEip3009,
 	}
+}
+
+func (b *PaymentRequestBuilder) WithPermit2() *PaymentRequestBuilder {
+	b.method = enums.AssetTransferMethodPermit2
+	return b
 }
 
 func (b *PaymentRequestBuilder) WithChainId(chainId uint64) *PaymentRequestBuilder {
@@ -115,18 +122,32 @@ func (b *PaymentRequestBuilder) Build() *requests.PaymentRequest {
 		MaxTimeoutSeconds: 60,
 		Extra:             map[string]any{"name": b.eip712Name, "version": b.eip712Version},
 	}
-	authorization := &requests.Eip3009Authorization{
-		From:        b.Payer().Hex(),
-		To:          b.payTo.Hex(),
-		Value:       b.amount,
-		ValidAfter:  strconv.FormatInt(b.validAfter, 10),
-		ValidBefore: strconv.FormatInt(b.validBefore, 10),
-		Nonce:       hexutil.Encode(b.nonce[:]),
-	}
-
 	payload := &requests.PaymentPayload{
 		X402Version: enums.X402Version,
-		Payload:     requests.ExactEvmPayload{Signature: b.sign(), Authorization: authorization},
+		Payload:     requests.ExactEvmPayload{Signature: b.sign()},
+	}
+	if b.method == enums.AssetTransferMethodPermit2 {
+		requirements.Extra["assetTransferMethod"] = enums.AssetTransferMethodPermit2.String()
+		payload.Payload.Permit2Authorization = &requests.Permit2Authorization{
+			Permitted: requests.Permit2TokenPermissions{Token: b.asset.Hex(), Amount: b.amount},
+			From:      b.Payer().Hex(),
+			Spender:   helpers.X402ExactPermit2ProxyAddress,
+			Nonce:     new(big.Int).SetBytes(b.nonce[:]).String(),
+			Deadline:  strconv.FormatInt(b.validBefore, 10),
+			Witness: requests.Permit2Witness{
+				To:         b.payTo.Hex(),
+				ValidAfter: strconv.FormatInt(b.validAfter, 10),
+			},
+		}
+	} else {
+		payload.Payload.Eip3009Authorization = &requests.Eip3009Authorization{
+			From:        b.Payer().Hex(),
+			To:          b.payTo.Hex(),
+			Value:       b.amount,
+			ValidAfter:  strconv.FormatInt(b.validAfter, 10),
+			ValidBefore: strconv.FormatInt(b.validBefore, 10),
+			Nonce:       hexutil.Encode(b.nonce[:]),
+		}
 	}
 	if b.legacy {
 		payload.Scheme = enums.PaymentSchemeExact.String()
@@ -160,6 +181,7 @@ func (b *PaymentRequestBuilder) BuildPayment() *models.Payment {
 		Asset:         b.asset,
 		PayTo:         b.payTo,
 		Amount:        b.Amount(),
+		Method:        b.method,
 		Authorization: authorization,
 	}
 }
@@ -183,6 +205,9 @@ func (b *PaymentRequestBuilder) sign() string {
 		b.eip712Version,
 		b.chainId,
 	)
+	if b.method == enums.AssetTransferMethodPermit2 {
+		digest, err = helpers.PermitWitnessTransferFromDigest(b.authorization(), b.asset, b.chainId)
+	}
 	if err != nil {
 		panic(err)
 	}

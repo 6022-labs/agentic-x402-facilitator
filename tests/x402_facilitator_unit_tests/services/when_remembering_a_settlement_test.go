@@ -48,7 +48,7 @@ func TestWhenRememberingASettlement(t *testing.T) {
 		return "x402:settlement:" + payment.SettlementKey() + ":tx"
 	}
 	stored := func(payment *models.Payment) string {
-		return txHash.Hex() + " " + payment.Authorization.Terms()
+		return txHash.Hex() + " " + payment.Terms()
 	}
 
 	t.Run("Given the store cannot be reached", func(t *testing.T) {

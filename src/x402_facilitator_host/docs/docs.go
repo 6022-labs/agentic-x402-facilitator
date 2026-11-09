@@ -235,6 +235,9 @@ const docTemplate = `{
                 "authorization": {
                     "$ref": "#/definitions/requests.Eip3009Authorization"
                 },
+                "permit2Authorization": {
+                    "$ref": "#/definitions/requests.Permit2Authorization"
+                },
                 "signature": {
                     "type": "string"
                 }
@@ -286,6 +289,51 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scheme": {
+                    "type": "string"
+                }
+            }
+        },
+        "requests.Permit2Authorization": {
+            "type": "object",
+            "properties": {
+                "deadline": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "string"
+                },
+                "permitted": {
+                    "$ref": "#/definitions/requests.Permit2TokenPermissions"
+                },
+                "spender": {
+                    "type": "string"
+                },
+                "witness": {
+                    "$ref": "#/definitions/requests.Permit2Witness"
+                }
+            }
+        },
+        "requests.Permit2TokenPermissions": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "requests.Permit2Witness": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string"
+                },
+                "validAfter": {
                     "type": "string"
                 }
             }

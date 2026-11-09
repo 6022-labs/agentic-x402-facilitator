@@ -12,23 +12,18 @@ import (
 	"github.com/6022-labs/agentic-x402-facilitator/tests/common_tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 type WhenReadingABalanceTestingSuite struct {
 	chain *fixtures.IntegrationChain
-	sut   *blockchain_services.Eip3009TokenRequester
+	sut   *blockchain_services.TokenRequester
 }
 
 func WhenReadingABalanceBeforeEach(t *testing.T) *WhenReadingABalanceTestingSuite {
 	chain := fixtures.NewIntegrationChain(t, blockchain_settings.ChainConfig{})
 	return &WhenReadingABalanceTestingSuite{
 		chain: chain,
-		sut: blockchain_services.NewEip3009TokenRequester(
-			zap.NewNop(),
-			chain.EthClientFactory,
-			chain.TransactorFactory,
-		),
+		sut:   blockchain_services.NewTokenRequester(chain.EthClientFactory),
 	}
 }
 

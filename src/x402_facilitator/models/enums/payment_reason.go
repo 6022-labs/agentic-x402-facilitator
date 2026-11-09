@@ -18,6 +18,13 @@ const (
 	PaymentReasonInvalidX402Version              PaymentReason = "invalid_x402_version"
 	PaymentReasonInvalidTransactionState         PaymentReason = "invalid_transaction_state"
 	PaymentReasonSettlementPending               PaymentReason = "settlement_pending"
+	PaymentReasonInvalidPermit2Spender           PaymentReason = "invalid_permit2_spender"
+	PaymentReasonInvalidPermit2RecipientMismatch PaymentReason = "invalid_permit2_recipient_mismatch"
+	PaymentReasonPermit2AmountMismatch           PaymentReason = "permit2_amount_mismatch"
+	PaymentReasonPermit2TokenMismatch            PaymentReason = "permit2_token_mismatch"
+	PaymentReasonInvalidPermit2Signature         PaymentReason = "invalid_permit2_signature"
+	PaymentReasonPermit2AllowanceRequired        PaymentReason = "permit2_allowance_required"
+	PaymentReasonPermit2ProxyNotDeployed         PaymentReason = "permit2_proxy_not_deployed"
 )
 
 func (r PaymentReason) String() string {

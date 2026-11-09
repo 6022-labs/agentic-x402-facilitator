@@ -3,7 +3,7 @@ package helpers_test
 import (
 	"testing"
 
-	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/helpers"
+	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/helpers"
 	"github.com/stretchr/testify/assert"
 )
 

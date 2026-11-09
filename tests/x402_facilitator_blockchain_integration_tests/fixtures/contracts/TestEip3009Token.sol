@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-// Minimal EIP-3009 token: enough of USDC's transferWithAuthorization for the facilitator to settle against.
+// Minimal EIP-3009 token: enough of USDC's transferWithAuthorization, and of ERC-20 for Permit2, to settle against.
 contract TestEip3009Token {
     bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH =
         keccak256(
@@ -11,6 +11,7 @@ contract TestEip3009Token {
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(bytes32 => bool)) public authorizationState;
+    mapping(address => mapping(address => uint256)) public allowance;
 
     constructor(string memory name, string memory version) {
         DOMAIN_SEPARATOR = keccak256(
@@ -26,6 +27,25 @@ contract TestEip3009Token {
 
     function mint(address to, uint256 value) external {
         balanceOf[to] += value;
+    }
+
+    // Test shortcut: approves for the owner, who has no gas on anvil.
+    function setAllowance(address owner, address spender, uint256 value) external {
+        allowance[owner][spender] = value;
+    }
+
+    function approve(address spender, uint256 value) external returns (bool) {
+        allowance[msg.sender][spender] = value;
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 value) external returns (bool) {
+        require(allowance[from][msg.sender] >= value, "insufficient allowance");
+        require(balanceOf[from] >= value, "insufficient balance");
+        allowance[from][msg.sender] -= value;
+        balanceOf[from] -= value;
+        balanceOf[to] += value;
+        return true;
     }
 
     function transferWithAuthorization(

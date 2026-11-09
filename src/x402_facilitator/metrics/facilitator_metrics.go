@@ -127,9 +127,14 @@ func (m *FacilitatorMetrics) Attributes(
 	if payment != nil && verified && m.accessSettings.AgentsOnly {
 		payTo = strings.ToLower(payment.PayTo.Hex())
 	}
+	method := unknownLabel
+	if payment != nil {
+		method = payment.Method.String()
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String("x402.network", network),
 		attribute.String("x402.asset", asset),
+		attribute.String("x402.asset_transfer_method", method),
 		attribute.String("x402.pay_to", payTo),
 	}
 

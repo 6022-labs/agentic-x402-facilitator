@@ -16,24 +16,26 @@ import (
 )
 
 type SettlePayment struct {
-	paymentRequestMapper
-	paymentVerifier          x402_facilitator_interfaces.PaymentVerifierInterface
-	settlementGuard          x402_facilitator_interfaces.SettlementGuardInterface
-	eip3009TransferSubmitter x402_facilitator_interfaces.Eip3009TransferSubmitterInterface
-	facilitatorMetrics       metrics_interfaces.FacilitatorMetricsInterface
+	paymentReader
+	paymentVerifier    x402_facilitator_interfaces.PaymentVerifierInterface
+	settlementGuard    x402_facilitator_interfaces.SettlementGuardInterface
+	transferSubmitter  x402_facilitator_interfaces.TransferSubmitterInterface
+	facilitatorMetrics metrics_interfaces.FacilitatorMetricsInterface
 }
 
 func NewSettlePayment(
+	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface,
 	paymentVerifier x402_facilitator_interfaces.PaymentVerifierInterface,
 	settlementGuard x402_facilitator_interfaces.SettlementGuardInterface,
-	eip3009TransferSubmitter x402_facilitator_interfaces.Eip3009TransferSubmitterInterface,
+	transferSubmitter x402_facilitator_interfaces.TransferSubmitterInterface,
 	facilitatorMetrics metrics_interfaces.FacilitatorMetricsInterface,
 ) *SettlePayment {
 	return &SettlePayment{
-		paymentVerifier:          paymentVerifier,
-		settlementGuard:          settlementGuard,
-		eip3009TransferSubmitter: eip3009TransferSubmitter,
-		facilitatorMetrics:       facilitatorMetrics,
+		paymentReader:      paymentReader{assetTransferMethodStrategies: assetTransferMethodStrategies},
+		paymentVerifier:    paymentVerifier,
+		settlementGuard:    settlementGuard,
+		transferSubmitter:  transferSubmitter,
+		facilitatorMetrics: facilitatorMetrics,
 	}
 }
 
@@ -45,9 +47,12 @@ func (u *SettlePayment) Execute(
 
 	var payment *models.Payment
 	verified := false
-	response, err := u.invalid(request.ValidateAndSanitize(), request)
+	err := request.ValidateAndSanitize()
+	if err == nil {
+		payment, err = u.payment(&request.PaymentRequest)
+	}
+	response, err := u.invalid(err, request)
 	if response == nil && err == nil {
-		payment = u.toPayment(&request.PaymentRequest)
 		response, verified, err = u.settle(ctx, request, payment)
 	}
 
@@ -118,7 +123,13 @@ func (u *SettlePayment) settleVerified(
 		return response, nil
 	}
 
-	txHash, err := u.eip3009TransferSubmitter.Broadcast(ctx, payment.ChainId, payment.Asset, payment.Authorization)
+	strategy, _ := u.assetTransferMethodStrategies.For(payment.Method)
+	call, err := strategy.TransferCall(payment)
+	if err != nil {
+		u.settlementGuard.Release(ctx, key, token)
+		return nil, err
+	}
+	txHash, err := u.transferSubmitter.Broadcast(ctx, payment.ChainId, call)
 	if err != nil {
 		u.settlementGuard.Release(ctx, key, token)
 		return u.broadcastFailure(err, request)
@@ -128,7 +139,7 @@ func (u *SettlePayment) settleVerified(
 		u.settlementGuard.Release(ctx, key, token)
 	}
 
-	transfer, err := u.eip3009TransferSubmitter.AwaitTransfer(ctx, payment.ChainId, txHash)
+	transfer, err := u.transferSubmitter.AwaitTransfer(ctx, payment.ChainId, txHash)
 	if err != nil {
 		return nil, apperrors.NewUnavailableError(
 			"chain_unavailable",
@@ -157,7 +168,7 @@ func (u *SettlePayment) reportRemembered(
 		return nil, nil
 	}
 
-	transfer, err := u.eip3009TransferSubmitter.TransferStatus(ctx, payment.ChainId, *txHash)
+	transfer, err := u.transferSubmitter.TransferStatus(ctx, payment.ChainId, *txHash)
 	if err != nil {
 		return nil, apperrors.NewUnavailableError(
 			"chain_unavailable",

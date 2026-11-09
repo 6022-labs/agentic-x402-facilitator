@@ -16,9 +16,32 @@ type Eip3009Authorization struct {
 	Nonce       string `json:"nonce"`
 }
 
+type Permit2TokenPermissions struct {
+	Token  string `json:"token"`
+	Amount string `json:"amount"`
+}
+
+// Permit2Witness binds the recipient and the earliest settlement time into the payer's signature.
+type Permit2Witness struct {
+	To         string `json:"to"`
+	ValidAfter string `json:"validAfter"`
+}
+
+// Permit2Authorization mirrors Permit2's PermitWitnessTransferFrom; Nonce and Deadline are decimal strings.
+type Permit2Authorization struct {
+	Permitted Permit2TokenPermissions `json:"permitted"`
+	From      string                  `json:"from"`
+	Spender   string                  `json:"spender"`
+	Nonce     string                  `json:"nonce"`
+	Deadline  string                  `json:"deadline"`
+	Witness   Permit2Witness          `json:"witness"`
+}
+
+// ExactEvmPayload carries one signed authorization, the one its asset transfer method uses.
 type ExactEvmPayload struct {
-	Signature     string                `json:"signature"`
-	Authorization *Eip3009Authorization `json:"authorization,omitempty"`
+	Signature            string                `json:"signature"`
+	Eip3009Authorization *Eip3009Authorization `json:"authorization,omitempty"`
+	Permit2Authorization *Permit2Authorization `json:"permit2Authorization,omitempty"`
 }
 
 // PaymentPayload is the signed payment; v2 names the chosen requirements in Accepted, older clients set Scheme/Network.

@@ -7,16 +7,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// Eip3009TransferSubmitterInterface submits transferWithAuthorization from the relayer and follows its outcome.
-type Eip3009TransferSubmitterInterface interface {
+// TransferSubmitterInterface sends settlement calls from the relayer and follows their outcome.
+type TransferSubmitterInterface interface {
+	// Simulate dry-runs the call from the relayer; a revert returns common/errors.ErrTransferRejected, an
+	// unloadable relayer key common/errors.ErrRelayerUnavailable.
+	Simulate(ctx context.Context, chainId uint64, call *models.TransferCall) error
 	// Broadcast returns ErrTransferRejected (chain would revert) or ErrRelayerUnavailable (key unloadable) from
 	// common/errors; an error means nothing was broadcast, and an ambiguous send counts as broadcast.
-	Broadcast(
-		ctx context.Context,
-		chainId uint64,
-		token common.Address,
-		authorization *models.TransferAuthorization,
-	) (common.Hash, error)
+	Broadcast(ctx context.Context, chainId uint64, call *models.TransferCall) (common.Hash, error)
 	// AwaitTransfer waits for the receipt and confirmations; a transfer still unconfirmed at the timeout is pending.
 	AwaitTransfer(ctx context.Context, chainId uint64, txHash common.Hash) (*models.Transfer, error)
 	// TransferStatus reads where a broadcast transfer stands; one the chain does not know yet is pending.

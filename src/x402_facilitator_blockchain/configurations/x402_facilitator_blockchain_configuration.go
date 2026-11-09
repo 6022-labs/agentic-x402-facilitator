@@ -57,15 +57,22 @@ func AddX402FacilitatorBlockchainConfiguration(container *dig.Container) {
 	}
 
 	if err := container.Provide(
-		blockchain_services.NewEip3009TokenRequester,
-		dig.As(new(x402_facilitator_interfaces.Eip3009TokenRequesterInterface)),
+		blockchain_services.NewTokenRequester,
+		dig.As(new(x402_facilitator_interfaces.TokenRequesterInterface)),
 	); err != nil {
 		panic(err)
 	}
 
 	if err := container.Provide(
-		blockchain_services.NewEip3009TransferSubmitter,
-		dig.As(new(x402_facilitator_interfaces.Eip3009TransferSubmitterInterface)),
+		blockchain_services.NewPermit2Requester,
+		dig.As(new(x402_facilitator_interfaces.Permit2RequesterInterface)),
+	); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(
+		blockchain_services.NewTransferSubmitter,
+		dig.As(new(x402_facilitator_interfaces.TransferSubmitterInterface)),
 	); err != nil {
 		panic(err)
 	}

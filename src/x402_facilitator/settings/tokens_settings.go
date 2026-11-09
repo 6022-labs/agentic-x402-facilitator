@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/knadh/koanf/v2"
 	"github.com/samber/lo"
@@ -12,17 +13,26 @@ import (
 
 const TokensSettingsKey = "tokens"
 
-// TokenConfig is an EIP-3009 token's EIP-712 domain; the facilitator hashes with it, never with the request's extra.
+const defaultAssetTransferMethods = "eip3009"
+
+// TokenConfig lists how a token may be paid; the EIP-712 domain, needed by eip3009 only, never comes from the request.
 type TokenConfig struct {
-	Eip712Name    string `koanf:"eip712_name"`
-	Eip712Version string `koanf:"eip712_version"`
+	AssetTransferMethods []enums.AssetTransferMethod
+	Eip712Name           string
+	Eip712Version        string
+}
+
+type tokenConfigRaw struct {
+	AssetTransferMethods string `koanf:"asset_transfer_methods"`
+	Eip712Name           string `koanf:"eip712_name"`
+	Eip712Version        string `koanf:"eip712_version"`
 }
 
 // TokensSettings lists the settleable tokens per chain id, keyed by token address.
 type TokensSettings map[uint64]map[common.Address]*TokenConfig
 
 func NewTokensSettings(logger *zap.Logger, k *koanf.Koanf) *TokensSettings {
-	raw := map[uint64]map[string]*TokenConfig{}
+	raw := map[uint64]map[string]*tokenConfigRaw{}
 	if err := k.UnmarshalWithConf(TokensSettingsKey, &raw, koanf.UnmarshalConf{Tag: "koanf"}); err != nil {
 		logger.Fatal("failed to unmarshal tokens settings", zap.Error(err))
 	}
@@ -51,12 +61,7 @@ func NewTokensSettings(logger *zap.Logger, k *koanf.Koanf) *TokensSettings {
 					zap.String("address", address),
 				)
 			}
-			token.Eip712Name = strings.TrimSpace(token.Eip712Name)
-			token.Eip712Version = strings.TrimSpace(token.Eip712Version)
-			if token.Eip712Name == "" || token.Eip712Version == "" {
-				logger.Fatal("token eip712_name and eip712_version are required", zap.String("address", address))
-			}
-			settings[chainId][common.HexToAddress(address)] = token
+			settings[chainId][common.HexToAddress(address)] = token.toTokenConfig(logger, address)
 		}
 	}
 
@@ -85,4 +90,31 @@ func (s *TokensSettings) ChainIds() []uint64 {
 	chainIds := lo.Keys(*s)
 	slices.Sort(chainIds)
 	return chainIds
+}
+
+func (r *tokenConfigRaw) toTokenConfig(logger *zap.Logger, address string) *TokenConfig {
+	token := &TokenConfig{
+		Eip712Name:    strings.TrimSpace(r.Eip712Name),
+		Eip712Version: strings.TrimSpace(r.Eip712Version),
+	}
+	methods := r.AssetTransferMethods
+	if strings.TrimSpace(methods) == "" {
+		methods = defaultAssetTransferMethods
+	}
+	for _, value := range strings.Split(methods, ",") {
+		var method enums.AssetTransferMethod
+		if err := method.Set(value); err != nil {
+			logger.Fatal(
+				"token asset_transfer_methods must list supported methods",
+				zap.String("address", address),
+				zap.Any("supported", enums.GetAllAssetTransferMethods()),
+			)
+		}
+		token.AssetTransferMethods = append(token.AssetTransferMethods, method)
+	}
+	if lo.Contains(token.AssetTransferMethods, enums.AssetTransferMethodEip3009) &&
+		(token.Eip712Name == "" || token.Eip712Version == "") {
+		logger.Fatal("an eip3009 token needs eip712_name and eip712_version", zap.String("address", address))
+	}
+	return token
 }
