@@ -157,8 +157,9 @@ The service refuses to start otherwise.
 | `host.body_limit_bytes` | 4 MiB | Largest request body. |
 | `host.listen_address` | all interfaces | Address to bind. |
 | `telemetry.enabled` | `false` | Export metrics, logs and traces over OTLP. |
-| `telemetry.endpoint`, `instance_id`, `environment` | — | Required once telemetry is on. |
-| `telemetry.insecure` | `false` | Send over plain gRPC, without TLS. |
+| `telemetry.protocol` | `grpc` | OTLP transport, `grpc` (port 4317) or `http` (port 4318). |
+| `telemetry.endpoint`, `instance_id`, `environment` | — | Required once telemetry is on; endpoint is `host:port`. |
+| `telemetry.insecure` | `false` | Send without TLS. |
 | `telemetry.auth_token` or `auth_username` + `auth_password` | — | Collector credentials, one kind only. |
 
 `LOG_LEVEL` (`info` by default) is read straight from the environment.

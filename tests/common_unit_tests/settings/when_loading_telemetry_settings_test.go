@@ -9,6 +9,7 @@ import (
 	"github.com/knadh/koanf/v2"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestWhenLoadingTelemetrySettings(t *testing.T) {
@@ -142,6 +143,99 @@ func TestWhenLoadingTelemetrySettings(t *testing.T) {
 			_, ok := result.AuthorizationHeader()
 
 			assert.False(t, ok)
+		})
+	})
+
+	t.Run("Given no protocol", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+
+		t.Run("Should default to grpc", func(t *testing.T) {
+			t.Parallel()
+
+			result := settings.NewTelemetrySettings(zap.NewNop(), k)
+
+			assert.Equal(t, settings.TelemetryProtocolGrpc, result.Protocol)
+		})
+	})
+
+	t.Run("Given the http protocol in mixed case", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		_ = k.Load(confmap.Provider(map[string]any{
+			"telemetry.enabled":     true,
+			"telemetry.protocol":    " HTTP ",
+			"telemetry.endpoint":    "collector:4318",
+			"telemetry.instance_id": "node-1",
+			"telemetry.environment": "staging",
+		}, "."), nil)
+
+		t.Run("Should resolve the http protocol", func(t *testing.T) {
+			t.Parallel()
+
+			result := settings.NewTelemetrySettings(zap.NewNop(), k)
+
+			assert.Equal(t, settings.TelemetryProtocolHttp, result.Protocol)
+			assert.Equal(t, "collector:4318", result.Endpoint)
+		})
+	})
+
+	t.Run("Given an unknown protocol", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		_ = k.Load(confmap.Provider(map[string]any{
+			"telemetry.protocol": "udp",
+		}, "."), nil)
+
+		t.Run("Should fail fast", func(t *testing.T) {
+			t.Parallel()
+
+			logger := zap.NewNop().WithOptions(zap.WithFatalHook(zapcore.WriteThenPanic))
+
+			assert.Panics(t, func() { settings.NewTelemetrySettings(logger, k) })
+		})
+	})
+
+	t.Run("Given an endpoint with a scheme", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		_ = k.Load(confmap.Provider(map[string]any{
+			"telemetry.enabled":     true,
+			"telemetry.endpoint":    "http://collector:4318",
+			"telemetry.instance_id": "node-1",
+			"telemetry.environment": "staging",
+		}, "."), nil)
+
+		t.Run("Should fail fast", func(t *testing.T) {
+			t.Parallel()
+
+			logger := zap.NewNop().WithOptions(zap.WithFatalHook(zapcore.WriteThenPanic))
+
+			assert.Panics(t, func() { settings.NewTelemetrySettings(logger, k) })
+		})
+	})
+
+	t.Run("Given an endpoint with a path", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		_ = k.Load(confmap.Provider(map[string]any{
+			"telemetry.enabled":     true,
+			"telemetry.endpoint":    "collector:4318/v1/traces",
+			"telemetry.instance_id": "node-1",
+			"telemetry.environment": "staging",
+		}, "."), nil)
+
+		t.Run("Should fail fast", func(t *testing.T) {
+			t.Parallel()
+
+			logger := zap.NewNop().WithOptions(zap.WithFatalHook(zapcore.WriteThenPanic))
+
+			assert.Panics(t, func() { settings.NewTelemetrySettings(logger, k) })
 		})
 	})
 }
