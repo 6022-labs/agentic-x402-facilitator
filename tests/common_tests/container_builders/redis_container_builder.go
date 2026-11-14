@@ -11,18 +11,33 @@ import (
 )
 
 var (
-	redisContainer     testcontainers.Container
-	redisAddr          string
-	redisContainerMu   sync.Mutex
-	redisConnectionsMu sync.Mutex
-	redisConnections   []*redis.Client
+	redisContainer   *RedisContainerBuilder
+	redisContainerMu sync.Mutex
 )
 
-func startRedis() string {
+type RedisContainerBuilder struct {
+	container     testcontainers.Container
+	address       string
+	containerMu   sync.Mutex
+	connectionsMu sync.Mutex
+	connections   []*redis.Client
+}
+
+func GetRedisContainerBuilder() *RedisContainerBuilder {
 	redisContainerMu.Lock()
 	defer redisContainerMu.Unlock()
 
 	if redisContainer == nil {
+		redisContainer = &RedisContainerBuilder{}
+	}
+	return redisContainer
+}
+
+func (b *RedisContainerBuilder) start() string {
+	b.containerMu.Lock()
+	defer b.containerMu.Unlock()
+
+	if b.container == nil {
 		ctx := context.Background()
 		req := testcontainers.ContainerRequest{
 			Image:        "redis:8-alpine",
@@ -35,56 +50,52 @@ func startRedis() string {
 			Started:          true,
 		})
 		if err != nil {
-			log.Fatalf("Failed to start Redis container: %v", err)
+			log.Fatalf("failed to start redis container: %v", err)
 		}
-		redisContainer = container
+		b.container = container
 
 		host, _ := container.Host(ctx)
 		port, _ := container.MappedPort(ctx, "6379")
-		redisAddr = host + ":" + port.Port()
-
-		log.Println("Redis container started and ready")
+		b.address = host + ":" + port.Port()
+		log.Println("Redis container ready")
 	}
-
-	return redisAddr
+	return b.address
 }
 
-func stopRedis() {
-	redisContainerMu.Lock()
-	defer redisContainerMu.Unlock()
+func (b *RedisContainerBuilder) stop() {
+	b.containerMu.Lock()
+	defer b.containerMu.Unlock()
 
-	if redisContainer != nil {
-		redisContainer.Terminate(context.Background())
-		redisContainer = nil
-
+	if b.container != nil {
+		_ = b.container.Terminate(context.Background())
+		b.container = nil
 		log.Println("Redis container stopped")
 	}
+
+	redisContainerMu.Lock()
+	redisContainer = nil
+	redisContainerMu.Unlock()
 }
 
-func GetRedisConnection() *redis.Client {
-	addr := startRedis()
+// Create returns a client on the shared container; tests isolate themselves through their own keys.
+func (b *RedisContainerBuilder) Create() *redis.Client {
+	client := redis.NewClient(&redis.Options{Addr: b.start()})
 
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-	})
-
-	redisConnectionsMu.Lock()
-	redisConnections = append(redisConnections, client)
-	redisConnectionsMu.Unlock()
+	b.connectionsMu.Lock()
+	b.connections = append(b.connections, client)
+	b.connectionsMu.Unlock()
 
 	return client
 }
 
-func CloseRedisConnection(client *redis.Client) {
-	// Just remove from the list, the container will be destroyed after all tests
-	for i, connection := range redisConnections {
+func (b *RedisContainerBuilder) DropConnection(client *redis.Client) {
+	b.connectionsMu.Lock()
+	defer b.connectionsMu.Unlock()
+	for i, connection := range b.connections {
 		if connection == client {
-			redisConnectionsMu.Lock()
-			redisConnections = append(redisConnections[:i], redisConnections[i+1:]...)
-			redisConnectionsMu.Unlock()
+			b.connections = append(b.connections[:i], b.connections[i+1:]...)
+			_ = client.Close()
 			break
 		}
 	}
-
-	log.Printf("Redis client removed from tracking")
 }

@@ -21,7 +21,10 @@ type VaultMountSettings struct {
 	KvV1MountPath string
 }
 
-var vaultContainer *VaultContainerBuilder
+var (
+	vaultContainer   *VaultContainerBuilder
+	vaultContainerMu sync.Mutex
+)
 
 type VaultContainerBuilder struct {
 	container   testcontainers.Container
@@ -33,6 +36,9 @@ type VaultContainerBuilder struct {
 }
 
 func GetVaultContainerBuilder() *VaultContainerBuilder {
+	vaultContainerMu.Lock()
+	defer vaultContainerMu.Unlock()
+
 	if vaultContainer == nil {
 		vaultContainer = &VaultContainerBuilder{}
 	}
@@ -92,7 +98,9 @@ func (b *VaultContainerBuilder) stop() {
 		b.container = nil
 		log.Println("Vault container stopped")
 	}
+	vaultContainerMu.Lock()
 	vaultContainer = nil
+	vaultContainerMu.Unlock()
 }
 
 // Create mounts a fresh KV v1 engine at a unique path so parallel tests don't trample each other.

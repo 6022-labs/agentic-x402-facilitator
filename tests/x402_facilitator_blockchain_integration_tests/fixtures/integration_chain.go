@@ -68,8 +68,8 @@ func NewIntegrationChain(t *testing.T, chainConfig blockchain_settings.ChainConf
 	mockRedisMetrics := redis_metrics_mocks.NewMockRedisMetricsInterface(mockController)
 	mockRedisMetrics.EXPECT().RecordOperation(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-	redisClient := container_builders.GetRedisConnection()
-	t.Cleanup(func() { container_builders.CloseRedisConnection(redisClient) })
+	redisClient := container_builders.GetRedisContainerBuilder().Create()
+	t.Cleanup(func() { container_builders.GetRedisContainerBuilder().DropConnection(redisClient) })
 
 	token, err := DeployEip3009Token(
 		context.Background(),

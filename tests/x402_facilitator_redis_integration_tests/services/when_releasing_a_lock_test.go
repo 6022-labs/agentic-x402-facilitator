@@ -22,7 +22,7 @@ type WhenReleasingALockTestingSuite struct {
 }
 
 func WhenReleasingALockBeforeEach(t *testing.T) *WhenReleasingALockTestingSuite {
-	redisClient := container_builders.GetRedisConnection()
+	redisClient := container_builders.GetRedisContainerBuilder().Create()
 
 	redisMetrics := metrics_mocks.NewMockRedisMetricsInterface(gomock.NewController(t))
 	redisMetrics.EXPECT().RecordOperation(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
@@ -34,7 +34,7 @@ func WhenReleasingALockBeforeEach(t *testing.T) *WhenReleasingALockTestingSuite 
 }
 
 func WhenReleasingALockAfterEach(suite *WhenReleasingALockTestingSuite) {
-	container_builders.CloseRedisConnection(suite.redisClient)
+	container_builders.GetRedisContainerBuilder().DropConnection(suite.redisClient)
 }
 
 func TestWhenReleasingALock(t *testing.T) {

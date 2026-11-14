@@ -21,7 +21,7 @@ type WhenStoringAValueTestingSuite struct {
 }
 
 func WhenStoringAValueBeforeEach(t *testing.T) *WhenStoringAValueTestingSuite {
-	redisClient := container_builders.GetRedisConnection()
+	redisClient := container_builders.GetRedisContainerBuilder().Create()
 
 	redisMetrics := metrics_mocks.NewMockRedisMetricsInterface(gomock.NewController(t))
 	redisMetrics.EXPECT().RecordOperation(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
@@ -33,7 +33,7 @@ func WhenStoringAValueBeforeEach(t *testing.T) *WhenStoringAValueTestingSuite {
 }
 
 func WhenStoringAValueAfterEach(suite *WhenStoringAValueTestingSuite) {
-	container_builders.CloseRedisConnection(suite.redisClient)
+	container_builders.GetRedisContainerBuilder().DropConnection(suite.redisClient)
 }
 
 func TestWhenStoringAValue(t *testing.T) {
