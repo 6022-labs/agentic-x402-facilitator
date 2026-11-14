@@ -10,6 +10,6 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	GetVaultContainerBuilder().stop()
 	GetAnvilContainerBuilder().stop()
-	stopRedis()
+	GetRedisContainerBuilder().stop()
 	os.Exit(code)
 }
