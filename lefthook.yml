@@ -1,0 +1,24 @@
+pre-commit:
+  fail_on_changes: always
+  fail_on_changes_diff: true
+  parallel: true
+  jobs:
+    - name: go-fmt
+      glob: "*.go"
+      run: golangci-lint fmt {staged_files}
+      stage_fixed: true
+    - name: secrets
+      run: gitleaks git --pre-commit --staged --redact --verbose --no-banner
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: go-build
+      glob: "*.{go,mod,sum}"
+      run: make build
+    - name: go-lint
+      glob: "*.{go,mod,sum}"
+      run: make lint
+    - name: go-test
+      glob: "*.{go,mod,sum}"
+      run: make test

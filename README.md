@@ -210,6 +210,7 @@ make lint             # golangci-lint v2
 make mocks            # regenerate the mocks after changing an interface
 make swagger          # regenerate the API docs
 make abi              # regenerate the contract bindings
+make hooks            # git hooks: format + secret scan on commit, build/lint/test on push
 ```
 
 ## License
