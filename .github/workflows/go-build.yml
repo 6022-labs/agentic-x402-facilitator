@@ -37,7 +37,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.2"
+          go-version: "1.27.4"
           cache: false
 
       # Sole writer of the Go cache: parallel jobs saving the same key race and waste the upload.
