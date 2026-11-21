@@ -1,6 +1,6 @@
 module github.com/6022-labs/agentic-x402-facilitator
 
-go 1.26.2
+go 1.27.4
 
 require (
 	github.com/avast/retry-go/v4 v4.7.0
