@@ -15,7 +15,7 @@ import (
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/helpers"
 	metrics_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/metrics/interfaces"
 	blockchain_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/settings"
-	"github.com/avast/retry-go/v4"
+	"github.com/avast/retry-go/v5"
 	"github.com/ethereum/go-ethereum"
 	gethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -276,7 +276,13 @@ func (s *TransferSubmitter) acquireSendLock(
 	ctx, cancel := context.WithTimeout(ctx, ttl)
 	defer cancel()
 
-	token, err := retry.DoWithData(
+	token, err := retry.NewWithData[string](
+		retry.Context(ctx),
+		retry.Attempts(0),
+		retry.Delay(sendLockPollInterval),
+		retry.DelayType(retry.FixedDelay),
+		retry.LastErrorOnly(true),
+	).Do(
 		func() (string, error) {
 			token, acquired, err := s.lockStorage.TryLock(ctx, lockKey, ttl)
 			if err != nil {
@@ -287,11 +293,6 @@ func (s *TransferSubmitter) acquireSendLock(
 			}
 			return token, nil
 		},
-		retry.Context(ctx),
-		retry.Attempts(0),
-		retry.Delay(sendLockPollInterval),
-		retry.DelayType(retry.FixedDelay),
-		retry.LastErrorOnly(true),
 	)
 	if errors.Is(err, errSendLockHeld) || errors.Is(err, context.DeadlineExceeded) {
 		return "", fmt.Errorf("wait for relayer send lock: %w", err)
@@ -438,7 +439,13 @@ func (s *TransferSubmitter) waitForOutcome(
 		return models.TransferStatusPending, nil
 	}
 	status := models.TransferStatusPending
-	err = retry.Do(
+	err = retry.New(
+		retry.Context(ctx),
+		retry.Attempts(0),
+		retry.Delay(confirmationPollInterval),
+		retry.DelayType(retry.FixedDelay),
+		retry.LastErrorOnly(true),
+	).Do(
 		func() error {
 			target := receipt.BlockNumber.Uint64() + chain.Confirmations - 1
 			head, err := client.BlockNumber(ctx)
@@ -459,11 +466,6 @@ func (s *TransferSubmitter) waitForOutcome(
 			}
 			return nil
 		},
-		retry.Context(ctx),
-		retry.Attempts(0),
-		retry.Delay(confirmationPollInterval),
-		retry.DelayType(retry.FixedDelay),
-		retry.LastErrorOnly(true),
 	)
 	if err != nil {
 		s.logger.Warn("settlement confirmations not reached in time", zap.String("tx", txHash.Hex()))
