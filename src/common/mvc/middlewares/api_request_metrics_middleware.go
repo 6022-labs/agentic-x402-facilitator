@@ -24,12 +24,8 @@ func (m *ApiRequestMetricsMiddleware) Handle(ctx fiber.Ctx) error {
 	start := time.Now()
 	method := ctx.Method()
 
-	// Protocol() trusts X-Forwarded-Proto, which any caller can set; clamp it so a hostile
-	// header cannot mint unbounded url.scheme series.
-	scheme := "http"
-	if ctx.Protocol() == "https" {
-		scheme = "https"
-	}
+	// Scheme() reads forwarded headers only from trusted proxies and yields only http or https.
+	scheme := ctx.Scheme()
 
 	userCtx := ctx.Context()
 	m.metrics.IncActiveRequests(userCtx, method, scheme)
