@@ -81,6 +81,9 @@ An HTTP error means something else went wrong:
   sent. Retry later;
 - `500`: an unexpected error.
 
+Each IP can send 50 requests per second (`rate_limit.requests_per_second`). Above that, requests get a
+`429`: wait a second and retry.
+
 If a transaction isn't mined within `chains.<id>.receipt_timeout_seconds`, `/settle` answers
 `settlement_pending` with its hash.
 
