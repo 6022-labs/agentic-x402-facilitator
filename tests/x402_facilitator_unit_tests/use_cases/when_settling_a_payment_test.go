@@ -27,6 +27,7 @@ import (
 type WhenSettlingAPaymentTestingSuite struct {
 	mockPaymentVerifier    *interfaces_mocks.MockPaymentVerifierInterface
 	mockSettlementGuard    *interfaces_mocks.MockSettlementGuardInterface
+	mockPayerLimiter       *interfaces_mocks.MockPayerLimiterInterface
 	mockTransferSubmitter  *interfaces_mocks.MockTransferSubmitterInterface
 	mockFacilitatorMetrics *metrics_mocks.MockFacilitatorMetricsInterface
 	sut                    *use_cases.SettlePayment
@@ -36,6 +37,7 @@ func WhenSettlingAPaymentBeforeEach(t *testing.T) *WhenSettlingAPaymentTestingSu
 	mockController := gomock.NewController(t)
 	mockPaymentVerifier := interfaces_mocks.NewMockPaymentVerifierInterface(mockController)
 	mockSettlementGuard := interfaces_mocks.NewMockSettlementGuardInterface(mockController)
+	mockPayerLimiter := interfaces_mocks.NewMockPayerLimiterInterface(mockController)
 	mockTransferSubmitter := interfaces_mocks.NewMockTransferSubmitterInterface(mockController)
 	strategies := x402_facilitator_services.NewAssetTransferMethodStrategies(
 		x402_facilitator_services.NewAssetTransferMethodStrategiesParams{
@@ -50,12 +52,14 @@ func WhenSettlingAPaymentBeforeEach(t *testing.T) *WhenSettlingAPaymentTestingSu
 	return &WhenSettlingAPaymentTestingSuite{
 		mockPaymentVerifier:    mockPaymentVerifier,
 		mockSettlementGuard:    mockSettlementGuard,
+		mockPayerLimiter:       mockPayerLimiter,
 		mockTransferSubmitter:  mockTransferSubmitter,
 		mockFacilitatorMetrics: mockFacilitatorMetrics,
 		sut: use_cases.NewSettlePayment(
 			strategies,
 			mockPaymentVerifier,
 			mockSettlementGuard,
+			mockPayerLimiter,
 			mockTransferSubmitter,
 			mockFacilitatorMetrics,
 		),
@@ -82,9 +86,14 @@ func (suite *WhenSettlingAPaymentTestingSuite) expectLocked(key string) {
 }
 
 func (suite *WhenSettlingAPaymentTestingSuite) expectBroadcast(txHash common.Hash, err error) {
+	suite.mockPayerLimiter.EXPECT().Take(gomock.Any(), gomock.Any()).Return("hold", nil)
 	suite.mockTransferSubmitter.EXPECT().
 		Broadcast(gomock.Any(), uint64(80002), gomock.Any()).
 		Return(txHash, err)
+	// Given back only when nothing was sent.
+	if err != nil {
+		suite.mockPayerLimiter.EXPECT().GiveBack(gomock.Any(), "hold")
+	}
 }
 
 func (suite *WhenSettlingAPaymentTestingSuite) expectRememberedAndReleased(key string, txHash common.Hash) {
@@ -596,6 +605,93 @@ func TestWhenSettlingAPayment(t *testing.T) {
 			response, err := suite.sut.Execute(context.Background(), request)
 
 			suite.assertRefused(t, response, err, enums.PaymentReasonSettlementPending.String(), txHash.Hex())
+		})
+	})
+
+	t.Run("Given the payer reaches its limit after the payment was verified", func(t *testing.T) {
+		t.Parallel()
+
+		builder := model_builders.NewPaymentRequestBuilder()
+		request := builder.BuildSettleRequest()
+		key := builder.BuildPayment().SettlementKey()
+
+		initSuite := func(suite *WhenSettlingAPaymentTestingSuite) {
+			suite.expectAuthorized()
+			suite.expectLocked(key)
+			suite.mockPayerLimiter.EXPECT().
+				Take(gomock.Any(), suite.paymentKeyed(key)).
+				Return("", apperrors.NewInvalidPaymentError(enums.PaymentReasonPayerLimitReached, "retry later"))
+			suite.mockSettlementGuard.EXPECT().Release(gomock.Any(), key, "token")
+			suite.expectSettlement(true, enums.PaymentReasonPayerLimitReached.String())
+		}
+
+		t.Run("Should answer success false with the reason", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenSettlingAPaymentBeforeEach(t)
+			initSuite(suite)
+
+			response, err := suite.sut.Execute(context.Background(), request)
+
+			suite.assertRefused(t, response, err, enums.PaymentReasonPayerLimitReached.String(), "")
+		})
+	})
+
+	t.Run("Given the payer's settlements cannot be counted", func(t *testing.T) {
+		t.Parallel()
+
+		builder := model_builders.NewPaymentRequestBuilder()
+		request := builder.BuildSettleRequest()
+		key := builder.BuildPayment().SettlementKey()
+
+		initSuite := func(suite *WhenSettlingAPaymentTestingSuite) {
+			suite.expectAuthorized()
+			suite.expectLocked(key)
+			suite.mockPayerLimiter.EXPECT().
+				Take(gomock.Any(), suite.paymentKeyed(key)).
+				Return("", apperrors.NewUnavailableError("store_unavailable", "unavailable", nil))
+			suite.mockSettlementGuard.EXPECT().Release(gomock.Any(), key, "token")
+			suite.expectFailure(true)
+		}
+
+		t.Run("Should return store_unavailable", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenSettlingAPaymentBeforeEach(t)
+			initSuite(suite)
+
+			response, err := suite.sut.Execute(context.Background(), request)
+
+			assert.Nil(t, response)
+			suite.assertUnavailable(t, err, "store_unavailable")
+		})
+	})
+
+	t.Run("Given the gas budget cannot cover the transfer", func(t *testing.T) {
+		t.Parallel()
+
+		builder := model_builders.NewPaymentRequestBuilder()
+		request := builder.BuildSettleRequest()
+		key := builder.BuildPayment().SettlementKey()
+
+		initSuite := func(suite *WhenSettlingAPaymentTestingSuite) {
+			suite.expectAuthorized()
+			suite.expectLocked(key)
+			suite.expectBroadcast(common.Hash{}, apperrors.ErrGasBudgetSpent)
+			suite.mockSettlementGuard.EXPECT().Release(gomock.Any(), key, "token")
+			suite.expectFailure(true)
+		}
+
+		t.Run("Should return gas_budget_spent", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenSettlingAPaymentBeforeEach(t)
+			initSuite(suite)
+
+			response, err := suite.sut.Execute(context.Background(), request)
+
+			assert.Nil(t, response)
+			suite.assertUnavailable(t, err, "gas_budget_spent")
 		})
 	})
 

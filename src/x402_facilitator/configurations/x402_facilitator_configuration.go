@@ -33,6 +33,10 @@ func AddX402FacilitatorConfiguration(container *dig.Container) {
 		panic(err)
 	}
 
+	if err := container.Provide(x402_facilitator_settings.NewGasBudgetSettings); err != nil {
+		panic(err)
+	}
+
 	if err := container.Provide(
 		metrics.NewFacilitatorMetrics,
 		dig.As(new(metrics_interfaces.FacilitatorMetricsInterface)),
@@ -66,6 +70,20 @@ func AddX402FacilitatorConfiguration(container *dig.Container) {
 		x402_facilitator_services.NewPermit2AssetTransferMethodStrategy,
 		dig.Group(assetTransferMethodStrategiesGroup),
 		dig.As(new(x402_facilitator_interfaces.AssetTransferMethodStrategyInterface)),
+	); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(
+		x402_facilitator_services.NewPayerLimiter,
+		dig.As(new(x402_facilitator_interfaces.PayerLimiterInterface)),
+	); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(
+		x402_facilitator_services.NewGasBudget,
+		dig.As(new(x402_facilitator_interfaces.GasBudgetInterface)),
 	); err != nil {
 		panic(err)
 	}

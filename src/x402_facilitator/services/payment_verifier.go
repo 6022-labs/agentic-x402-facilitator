@@ -21,6 +21,8 @@ const validBeforeMargin = 6 * time.Second
 // PaymentVerifier runs the checks every method shares and hands the method-specific ones to its strategy.
 type PaymentVerifier struct {
 	tokensSettings                *x402_facilitator_settings.TokensSettings
+	payerLimiter                  x402_facilitator_interfaces.PayerLimiterInterface
+	gasBudget                     x402_facilitator_interfaces.GasBudgetInterface
 	payToEligibilityChecker       x402_facilitator_interfaces.PayToEligibilityCheckerInterface
 	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface
 	tokenRequester                x402_facilitator_interfaces.TokenRequesterInterface
@@ -29,6 +31,8 @@ type PaymentVerifier struct {
 
 func NewPaymentVerifier(
 	tokensSettings *x402_facilitator_settings.TokensSettings,
+	payerLimiter x402_facilitator_interfaces.PayerLimiterInterface,
+	gasBudget x402_facilitator_interfaces.GasBudgetInterface,
 	payToEligibilityChecker x402_facilitator_interfaces.PayToEligibilityCheckerInterface,
 	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface,
 	tokenRequester x402_facilitator_interfaces.TokenRequesterInterface,
@@ -36,6 +40,8 @@ func NewPaymentVerifier(
 ) *PaymentVerifier {
 	return &PaymentVerifier{
 		tokensSettings:                tokensSettings,
+		payerLimiter:                  payerLimiter,
+		gasBudget:                     gasBudget,
 		payToEligibilityChecker:       payToEligibilityChecker,
 		assetTransferMethodStrategies: assetTransferMethodStrategies,
 		tokenRequester:                tokenRequester,
@@ -44,11 +50,24 @@ func NewPaymentVerifier(
 }
 
 func (v *PaymentVerifier) Verify(ctx context.Context, payment *models.Payment) error {
-	// Local checks first, so a forged payment never costs a registry lookup.
+	// Local checks first, then the store, so a forged payment never costs a registry lookup.
 	if err := v.VerifyAuthorization(payment); err != nil {
 		return err
 	}
 	if err := v.checkValidityWindow(payment.Authorization); err != nil {
+		return err
+	}
+	// The relayer would pay gas to move nothing, for free and forever.
+	if payment.Authorization.From == payment.PayTo {
+		return apperrors.NewInvalidPaymentError(
+			enums.PaymentReasonSelfPayment,
+			"the payer and payTo are the same address",
+		)
+	}
+	if err := v.payerLimiter.Check(ctx, payment); err != nil {
+		return err
+	}
+	if err := v.gasBudget.Check(ctx, payment.ChainId); err != nil {
 		return err
 	}
 	if err := v.payToEligibilityChecker.Check(ctx, payment.PayTo); err != nil {

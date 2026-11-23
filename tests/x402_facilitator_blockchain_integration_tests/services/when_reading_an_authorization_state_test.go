@@ -38,6 +38,7 @@ func WhenReadingAnAuthorizationStateBeforeEach(t *testing.T) *WhenReadingAnAutho
 			chain.ChainsSettings,
 			chain.RedisLockStorage,
 			chain.RedisStorage,
+			chain.UnboundedGasBudget,
 			mockRelayerMetrics,
 			zap.NewNop(),
 		),

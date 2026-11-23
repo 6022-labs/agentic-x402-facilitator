@@ -11,5 +11,7 @@ type CacheStorageInterface interface {
 	Store(ctx context.Context, key string, value string, ttl time.Duration) error
 	// ReadString returns nil for a missing key.
 	ReadString(ctx context.Context, key string) (*string, error)
+	// ReadAndDelete is atomic: of concurrent callers, one gets the value and the others nil.
+	ReadAndDelete(ctx context.Context, key string) (*string, error)
 	Delete(ctx context.Context, key string) error
 }

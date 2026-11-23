@@ -23,6 +23,8 @@ import (
 )
 
 type WhenVerifyingAPaymentTestingSuite struct {
+	mockPayerLimiter            *interfaces_mocks.MockPayerLimiterInterface
+	mockGasBudget               *interfaces_mocks.MockGasBudgetInterface
 	mockPayToEligibilityChecker *interfaces_mocks.MockPayToEligibilityCheckerInterface
 	mockStrategies              *interfaces_mocks.MockAssetTransferMethodStrategiesInterface
 	mockStrategy                *interfaces_mocks.MockAssetTransferMethodStrategyInterface
@@ -33,6 +35,8 @@ type WhenVerifyingAPaymentTestingSuite struct {
 
 func WhenVerifyingAPaymentBeforeEach(t *testing.T, asset common.Address) *WhenVerifyingAPaymentTestingSuite {
 	mockController := gomock.NewController(t)
+	mockPayerLimiter := interfaces_mocks.NewMockPayerLimiterInterface(mockController)
+	mockGasBudget := interfaces_mocks.NewMockGasBudgetInterface(mockController)
 	mockPayToEligibilityChecker := interfaces_mocks.NewMockPayToEligibilityCheckerInterface(mockController)
 	mockStrategies := interfaces_mocks.NewMockAssetTransferMethodStrategiesInterface(mockController)
 	mockStrategy := interfaces_mocks.NewMockAssetTransferMethodStrategyInterface(mockController)
@@ -48,6 +52,8 @@ func WhenVerifyingAPaymentBeforeEach(t *testing.T, asset common.Address) *WhenVe
 	}
 
 	return &WhenVerifyingAPaymentTestingSuite{
+		mockPayerLimiter:            mockPayerLimiter,
+		mockGasBudget:               mockGasBudget,
 		mockPayToEligibilityChecker: mockPayToEligibilityChecker,
 		mockStrategies:              mockStrategies,
 		mockStrategy:                mockStrategy,
@@ -55,6 +61,8 @@ func WhenVerifyingAPaymentBeforeEach(t *testing.T, asset common.Address) *WhenVe
 		mockTransferSubmitter:       mockTransferSubmitter,
 		sut: x402_facilitator_services.NewPaymentVerifier(
 			tokensSettings,
+			mockPayerLimiter,
+			mockGasBudget,
 			mockPayToEligibilityChecker,
 			mockStrategies,
 			mockTokenRequester,
@@ -85,7 +93,13 @@ func (suite *WhenVerifyingAPaymentTestingSuite) expectSigned() {
 	suite.mockStrategy.EXPECT().VerifySignature(gomock.Any(), gomock.Any()).Return(nil)
 }
 
+func (suite *WhenVerifyingAPaymentTestingSuite) expectWithinLimits(payment *models.Payment) {
+	suite.mockPayerLimiter.EXPECT().Check(gomock.Any(), payment).Return(nil)
+	suite.mockGasBudget.EXPECT().Check(gomock.Any(), payment.ChainId).Return(nil)
+}
+
 func (suite *WhenVerifyingAPaymentTestingSuite) expectEligible(payment *models.Payment) {
+	suite.expectWithinLimits(payment)
 	suite.mockPayToEligibilityChecker.EXPECT().Check(gomock.Any(), payment.PayTo).Return(nil)
 }
 
@@ -222,6 +236,71 @@ func TestWhenVerifyingAPayment(t *testing.T) {
 		})
 	})
 
+	t.Run("Given the payer and payTo are the same address", func(t *testing.T) {
+		t.Parallel()
+
+		payment := builder().BuildPayment()
+		payment.PayTo = payment.Authorization.From
+
+		t.Run("Should refuse the self payment", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenVerifyingAPaymentBeforeEach(t, asset)
+			suite.expectSigned()
+
+			err := suite.sut.Verify(context.Background(), payment)
+
+			suite.assertInvalid(t, err, enums.PaymentReasonSelfPayment.String())
+		})
+	})
+
+	t.Run("Given the payer reached its limit", func(t *testing.T) {
+		t.Parallel()
+
+		payment := builder().BuildPayment()
+		limitErr := apperrors.NewInvalidPaymentError(enums.PaymentReasonPayerLimitReached, "retry later")
+
+		initSuite := func(suite *WhenVerifyingAPaymentTestingSuite) {
+			suite.expectSigned()
+			suite.mockPayerLimiter.EXPECT().Check(gomock.Any(), payment).Return(limitErr)
+		}
+
+		t.Run("Should return the limiter's refusal", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenVerifyingAPaymentBeforeEach(t, asset)
+			initSuite(suite)
+
+			err := suite.sut.Verify(context.Background(), payment)
+
+			assert.Same(t, limitErr, err)
+		})
+	})
+
+	t.Run("Given the gas budget is spent", func(t *testing.T) {
+		t.Parallel()
+
+		payment := builder().BuildPayment()
+		spentErr := apperrors.NewUnavailableError("gas_budget_spent", "retry tomorrow", nil)
+
+		initSuite := func(suite *WhenVerifyingAPaymentTestingSuite) {
+			suite.expectSigned()
+			suite.mockPayerLimiter.EXPECT().Check(gomock.Any(), payment).Return(nil)
+			suite.mockGasBudget.EXPECT().Check(gomock.Any(), payment.ChainId).Return(spentErr)
+		}
+
+		t.Run("Should return the gas budget's error", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenVerifyingAPaymentBeforeEach(t, asset)
+			initSuite(suite)
+
+			err := suite.sut.Verify(context.Background(), payment)
+
+			assert.Same(t, spentErr, err)
+		})
+	})
+
 	t.Run("Given payTo is not eligible", func(t *testing.T) {
 		t.Parallel()
 
@@ -233,6 +312,7 @@ func TestWhenVerifyingAPayment(t *testing.T) {
 
 		initSuite := func(suite *WhenVerifyingAPaymentTestingSuite) {
 			suite.expectSigned()
+			suite.expectWithinLimits(payment)
 			suite.mockPayToEligibilityChecker.EXPECT().Check(gomock.Any(), payment.PayTo).Return(notEligibleErr)
 		}
 

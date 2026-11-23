@@ -77,8 +77,8 @@ x402 reason such as `insufficient_funds`. That includes a payment to a wallet th
 An HTTP error means something else went wrong:
 
 - `400` or `413`: the body is not JSON, or is too large;
-- `502`: the chain, Redis or Vault cannot be reached, or the same payment is already being
-  sent. Retry later;
+- `502`: the chain, Redis or Vault cannot be reached, the same payment is already being sent, or
+  the chain's daily gas budget is spent. Retry later;
 - `500`: an unexpected error.
 
 Each IP can send 50 requests per second (`rate_limit.requests_per_second`). Above that, requests get a
@@ -119,6 +119,7 @@ annotated template.
 | `chains.<id>.confirmations` | `1` | Blocks to wait before a payment counts as settled. |
 | `chains.<id>.receipt_timeout_seconds` | `120` | How long `/settle` waits before answering `settlement_pending`. |
 | `chains.<id>.testnet` | — | Required: `true` on a testnet, `false` on a mainnet. |
+| `chains.<id>.daily_gas_budget` | `0` (no limit) | Gas the relayer may pay per UTC day, in the native token. |
 | `tokens.<id>.<address>.asset_transfer_methods` | `eip3009` | `eip3009`, `permit2`, or both comma-separated. |
 | `tokens.<id>.<address>.eip712_name` | — | With `eip3009`: the token's EIP-712 name, `USDC` for Circle's USDC. |
 | `tokens.<id>.<address>.eip712_version` | — | With `eip3009`: the token's EIP-712 version, `2` for USDC. |
@@ -145,8 +146,9 @@ That is why every chain must say whether it is a testnet.
 | `vault.address`, `vault.token` | — | The Vault holding the relayer's key. |
 | `vault.kv_v1_mount_path` | `secret` | Its KV v1 mount. |
 | `relayer.vault_key` | `relayer` | The secret whose `private_key` field is the relayer's key. |
-| `redis.host`, `redis.password`, `redis.db` | —, —, `0` | Redis, shared by every instance. Required. |
+| `redis.host`, `redis.password`, `redis.db` | —, —, `0` | Redis 6.2 or later, shared by every instance. Required. |
 | `settlement.lock_ttl_seconds` | `600` | How long a payment stays locked if an instance dies while sending it. |
+| `settlement.max_per_payer_per_hour` | `300` | Settlements per payer, chain and clock hour; `0` for no limit. |
 
 `settlement.lock_ttl_seconds` must be longer than the longest settlement on every chain,
 `22 × request_timeout_seconds + receipt_timeout_seconds` (340 seconds with the defaults).
@@ -175,8 +177,12 @@ The service refuses to start otherwise.
 that chain fails. The Grafana dashboard shows its balance; set an alert on
 `x402_facilitator_relayer_balance`.
 
-**Rate-limit `/settle`.** Anyone who can reach it can make the relayer pay gas for a payment,
-even a tiny one. Put the service behind a proxy that limits requests.
+**Bound the gas.** Anyone who can reach `/settle` can make the relayer pay gas for a payment,
+even a tiny one. Payments to oneself are refused (`self_payment`), and so is a payer past
+`settlement.max_per_payer_per_hour` (`payer_limit_reached`). Someone with many wallets can get
+around both, so set `chains.<id>.daily_gas_budget` too: once it is spent, `/verify` and `/settle`
+answer 502 `gas_budget_spent` on that chain until the next UTC day. The budget does not count the
+L1 data fee rollups add, so set it lower there.
 
 **Run as many instances as you like** behind a load balancer. They share everything through
 Redis: agent lookups, the lock that stops two instances from sending the same payment, and

@@ -62,4 +62,69 @@ func TestWhenLoadingSettlementSettings(t *testing.T) {
 			assert.Equal(t, 10*time.Minute, result.LockTtl)
 		})
 	})
+
+	t.Run("Given no payer limit", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+
+		t.Run("Should allow 300 settlements per hour", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewSettlementSettings(zap.NewNop(), k)
+
+			assert.Equal(t, int64(300), result.MaxPerPayerPerHour)
+		})
+	})
+
+	t.Run("Given a payer limit as a string", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		require.NoError(t, k.Load(confmap.Provider(map[string]any{
+			"settlement.max_per_payer_per_hour": "20",
+		}, "."), nil))
+
+		t.Run("Should use it as the hourly limit", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewSettlementSettings(zap.NewNop(), k)
+
+			assert.Equal(t, int64(20), result.MaxPerPayerPerHour)
+		})
+	})
+
+	t.Run("Given a payer limit of zero", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		require.NoError(t, k.Load(confmap.Provider(map[string]any{
+			"settlement.max_per_payer_per_hour": 0,
+		}, "."), nil))
+
+		t.Run("Should set no payer limit", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewSettlementSettings(zap.NewNop(), k)
+
+			assert.Equal(t, int64(0), result.MaxPerPayerPerHour)
+		})
+	})
+
+	t.Run("Given a negative payer limit", func(t *testing.T) {
+		t.Parallel()
+
+		k := koanf.New(".")
+		require.NoError(t, k.Load(confmap.Provider(map[string]any{
+			"settlement.max_per_payer_per_hour": -1,
+		}, "."), nil))
+
+		t.Run("Should default to 300 settlements per hour", func(t *testing.T) {
+			t.Parallel()
+
+			result := x402_facilitator_settings.NewSettlementSettings(zap.NewNop(), k)
+
+			assert.Equal(t, int64(300), result.MaxPerPayerPerHour)
+		})
+	})
 }

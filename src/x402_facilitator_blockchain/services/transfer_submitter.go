@@ -47,6 +47,7 @@ type TransferSubmitter struct {
 	chainsSettings    *blockchain_settings.ChainsSettings
 	lockStorage       x402_facilitator_interfaces.LockStorageInterface
 	cacheStorage      x402_facilitator_interfaces.CacheStorageInterface
+	gasBudget         x402_facilitator_interfaces.GasBudgetInterface
 	relayerMetrics    metrics_interfaces.RelayerMetricsInterface
 	logger            *zap.Logger
 }
@@ -57,6 +58,7 @@ func NewTransferSubmitter(
 	chainsSettings *blockchain_settings.ChainsSettings,
 	lockStorage x402_facilitator_interfaces.LockStorageInterface,
 	cacheStorage x402_facilitator_interfaces.CacheStorageInterface,
+	gasBudget x402_facilitator_interfaces.GasBudgetInterface,
 	relayerMetrics metrics_interfaces.RelayerMetricsInterface,
 	logger *zap.Logger,
 ) *TransferSubmitter {
@@ -66,6 +68,7 @@ func NewTransferSubmitter(
 		chainsSettings:    chainsSettings,
 		lockStorage:       lockStorage,
 		cacheStorage:      cacheStorage,
+		gasBudget:         gasBudget,
 		relayerMetrics:    relayerMetrics,
 		logger:            logger,
 	}
@@ -136,6 +139,9 @@ func (s *TransferSubmitter) Broadcast(
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("read kept transaction: %w", err)
 	}
+	if err := s.gasBudget.Reserve(signCtx, chainId, tx.Hash(), s.maxCost(tx)); err != nil {
+		return common.Hash{}, err
+	}
 	sendErr := s.keepSigned(signCtx, keys, tx)
 	// Past the sign deadline, another replica may hold the send lock and sign at this nonce.
 	if sendErr == nil {
@@ -154,9 +160,14 @@ func (s *TransferSubmitter) Broadcast(
 			s.logger.Warn("refused transaction still kept, tracking it as sent", zap.String("tx", tx.Hash().Hex()))
 			return tx.Hash(), nil
 		}
+		s.gasBudget.Settle(afterCtx, chainId, tx.Hash(), new(big.Int))
 		return common.Hash{}, fmt.Errorf("send settlement: %w", sendErr)
 	}
 	return tx.Hash(), nil
+}
+
+func (s *TransferSubmitter) maxCost(tx *types.Transaction) *big.Int {
+	return new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), tx.GasFeeCap())
 }
 
 func (s *TransferSubmitter) estimateGas(
@@ -190,6 +201,9 @@ func (s *TransferSubmitter) AwaitTransfer(
 	defer cancel()
 
 	status, receipt := s.waitForOutcome(waitCtx, client, chain, txHash)
+	if receipt != nil {
+		s.settleGas(ctx, chainId, receipt)
+	}
 	if status == models.TransferStatusPending {
 		s.refillNonceGap(ctx, client, chain, chainId)
 	} else {
@@ -215,6 +229,8 @@ func (s *TransferSubmitter) TransferStatus(
 	if err != nil {
 		return nil, fmt.Errorf("read settlement receipt: %w", err)
 	}
+	// Mined after the wait ended: the reservation is still at its worst case.
+	s.settleGas(ctx, chainId, receipt)
 	head, err := client.BlockNumber(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read head block: %w", err)
@@ -426,7 +442,7 @@ func (s *TransferSubmitter) relayerKeys(chainId uint64, relayer common.Address) 
 	return relayerKeys{lock: prefix + ":lock", prefix: prefix}
 }
 
-// waitForOutcome returns the receipt the status rests on, nil when pending.
+// waitForOutcome returns the last receipt seen, nil when not mined in time; a pending status rests on none.
 func (s *TransferSubmitter) waitForOutcome(
 	ctx context.Context,
 	client *ethclient.Client,
@@ -469,7 +485,7 @@ func (s *TransferSubmitter) waitForOutcome(
 	)
 	if err != nil {
 		s.logger.Warn("settlement confirmations not reached in time", zap.String("tx", txHash.Hex()))
-		return models.TransferStatusPending, nil
+		return models.TransferStatusPending, receipt
 	}
 	return status, receipt
 }
@@ -481,16 +497,30 @@ func (s *TransferSubmitter) outcome(receipt *types.Receipt) models.TransferStatu
 	return models.TransferStatusConfirmed
 }
 
-// recordGasSpent prices the gas at the receipt's effective price, which every post-London node returns.
+// settleGas corrects the budget once mined: the gas is paid, whatever the confirmations.
+func (s *TransferSubmitter) settleGas(ctx context.Context, chainId uint64, receipt *types.Receipt) {
+	if cost := s.cost(receipt); cost != nil {
+		s.gasBudget.Settle(context.WithoutCancel(ctx), chainId, receipt.TxHash, cost)
+	}
+}
+
+// cost prices the gas at the receipt's effective price, which every post-London node returns; nil without one.
+func (s *TransferSubmitter) cost(receipt *types.Receipt) *big.Int {
+	if receipt.EffectiveGasPrice == nil {
+		return nil
+	}
+	return new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), receipt.EffectiveGasPrice)
+}
+
 func (s *TransferSubmitter) recordGasSpent(
 	ctx context.Context,
 	chainId uint64,
 	receipt *types.Receipt,
 	status models.TransferStatus,
 ) {
-	if receipt.EffectiveGasPrice == nil {
+	cost := s.cost(receipt)
+	if cost == nil {
 		return
 	}
-	cost := new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), receipt.EffectiveGasPrice)
 	s.relayerMetrics.RecordGasSpent(ctx, chainId, receipt.GasUsed, cost, string(status))
 }
