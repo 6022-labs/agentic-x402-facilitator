@@ -45,6 +45,8 @@ func WhenVerifyingAPaymentAuthorizationBeforeEach(
 					Eip712Version: "2",
 				}},
 			},
+			interfaces_mocks.NewMockPayerLimiterInterface(mockController),
+			interfaces_mocks.NewMockGasBudgetInterface(mockController),
 			interfaces_mocks.NewMockPayToEligibilityCheckerInterface(mockController),
 			mockStrategies,
 			interfaces_mocks.NewMockTokenRequesterInterface(mockController),

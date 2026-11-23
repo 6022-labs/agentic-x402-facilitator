@@ -17,6 +17,7 @@ import (
 	"github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_blockchain_integration_tests/fixtures"
 	blockchain_metrics_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_blockchain_mocks/metrics_mocks/interfaces_mocks"
 	interfaces_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_mocks/services_mocks/interfaces_mocks"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -27,8 +28,9 @@ import (
 )
 
 type WhenBroadcastingATransferTestingSuite struct {
-	chain *fixtures.IntegrationChain
-	sut   *blockchain_services.TransferSubmitter
+	chain         *fixtures.IntegrationChain
+	mockGasBudget *interfaces_mocks.MockGasBudgetInterface
+	sut           *blockchain_services.TransferSubmitter
 }
 
 // WhenBroadcastingATransferBeforeEach uses the chain's relayer unless relayerKeyStorage is given.
@@ -45,18 +47,34 @@ func WhenBroadcastingATransferBeforeEach(
 		transactorFactory = factory.NewTransactorFactory(relayerKeyStorage, zap.NewNop())
 	}
 
+	mockController := gomock.NewController(t)
+	mockGasBudget := interfaces_mocks.NewMockGasBudgetInterface(mockController)
+
 	return &WhenBroadcastingATransferTestingSuite{
-		chain: chain,
+		chain:         chain,
+		mockGasBudget: mockGasBudget,
 		sut: blockchain_services.NewTransferSubmitter(
 			chain.EthClientFactory,
 			transactorFactory,
 			chain.ChainsSettings,
 			chain.RedisLockStorage,
 			chain.RedisStorage,
-			blockchain_metrics_mocks.NewMockRelayerMetricsInterface(gomock.NewController(t)),
+			mockGasBudget,
+			blockchain_metrics_mocks.NewMockRelayerMetricsInterface(mockController),
 			zap.NewNop(),
 		),
 	}
+}
+
+func (suite *WhenBroadcastingATransferTestingSuite) expectReserved() {
+	suite.mockGasBudget.EXPECT().
+		Reserve(
+			gomock.Any(),
+			suite.chain.ChainId,
+			gomock.Any(),
+			gomock.Cond(func(maxCost *big.Int) bool { return maxCost.Sign() > 0 }),
+		).
+		Return(nil)
 }
 
 func (suite *WhenBroadcastingATransferTestingSuite) relayerKey(suffix string) string {
@@ -144,6 +162,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			suite.expectReserved()
 			pending, err := suite.chain.Client.PendingNonceAt(context.Background(), suite.chain.Relayer.Address)
 			require.NoError(t, err)
 			key, err := crypto.HexToECDSA(suite.chain.Relayer.PrivateKeyHex)
@@ -218,6 +237,69 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 		})
 	})
 
+	t.Run("Given the gas budget cannot cover the transfer", func(t *testing.T) {
+		t.Parallel()
+
+		initSuite := func(suite *WhenBroadcastingATransferTestingSuite) {
+			suite.mockGasBudget.EXPECT().
+				Reserve(gomock.Any(), suite.chain.ChainId, gomock.Any(), gomock.Any()).
+				Return(apperrors.ErrGasBudgetSpent)
+		}
+
+		t.Run("Should return the budget spent error", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			initSuite(suite)
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+
+			_, err := suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+
+			assert.ErrorIs(t, err, apperrors.ErrGasBudgetSpent)
+		})
+
+		t.Run("Should leave the relayer nonce unused", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			initSuite(suite)
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+			before, err := suite.chain.Client.PendingNonceAt(context.Background(), suite.chain.Relayer.Address)
+			require.NoError(t, err)
+
+			_, _ = suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+
+			after, err := suite.chain.Client.PendingNonceAt(context.Background(), suite.chain.Relayer.Address)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+		})
+
+		t.Run("Should keep no transaction to resend later", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			initSuite(suite)
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+			before, err := suite.chain.Client.PendingNonceAt(context.Background(), suite.chain.Relayer.Address)
+			require.NoError(t, err)
+
+			_, _ = suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+
+			kept, err := suite.chain.RedisStorage.ReadString(
+				context.Background(),
+				suite.relayerKey(fmt.Sprintf("tx:%d", before)),
+			)
+			require.NoError(t, err)
+			assert.Nil(t, kept)
+		})
+	})
+
 	t.Run("Given the node refuses the transfer", func(t *testing.T) {
 		t.Parallel()
 
@@ -225,6 +307,8 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			suite.expectReserved()
+			suite.mockGasBudget.EXPECT().Settle(gomock.Any(), suite.chain.ChainId, gomock.Any(), new(big.Int))
 			require.NoError(t, suite.chain.Client.Client().Call(
 				nil,
 				"anvil_setBalance",
@@ -247,6 +331,27 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			require.NoError(t, err)
 			assert.Nil(t, kept)
 		})
+
+		t.Run("Should give its whole gas reservation back", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			suite.expectReserved()
+			suite.mockGasBudget.EXPECT().Settle(gomock.Any(), suite.chain.ChainId, gomock.Any(), new(big.Int))
+			require.NoError(t, suite.chain.Client.Client().Call(
+				nil,
+				"anvil_setBalance",
+				suite.chain.Relayer.Address,
+				"0x0",
+			))
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+
+			_, err := suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+
+			require.ErrorContains(t, err, "send settlement")
+		})
 	})
 
 	t.Run("Given a funded EIP-3009 authorization", func(t *testing.T) {
@@ -256,6 +361,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			suite.expectReserved()
 			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
 
 			txHash, err := suite.sut.Broadcast(
@@ -267,10 +373,37 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			assert.NoError(t, err)
 		})
 
+		t.Run("Should reserve gas limit times max fee under the transaction hash", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+			var reservedHash common.Hash
+			var reservedCost *big.Int
+			suite.mockGasBudget.EXPECT().
+				Reserve(gomock.Any(), suite.chain.ChainId, gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ uint64, txHash common.Hash, maxCost *big.Int) error {
+					reservedHash, reservedCost = txHash, maxCost
+					return nil
+				})
+
+			txHash, err := suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+
+			require.NoError(t, err)
+			tx, _, err := suite.chain.Client.TransactionByHash(context.Background(), txHash)
+			require.NoError(t, err)
+			assert.Equal(t, txHash, reservedHash)
+			assert.Equal(t, new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), tx.GasFeeCap()), reservedCost)
+		})
+
 		t.Run("Should give the next transfer the next relayer nonce", func(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			suite.expectReserved()
+			suite.expectReserved()
 			first := suite.chain.FundedPayment(t, 1000).BuildPayment()
 			second := suite.chain.FundedPayment(t, 1000).BuildPayment()
 
@@ -298,6 +431,7 @@ func TestWhenBroadcastingATransfer(t *testing.T) {
 			t.Parallel()
 
 			suite := WhenBroadcastingATransferBeforeEach(t, nil)
+			suite.expectReserved()
 			payment := suite.chain.FundedPermit2Payment(t, 1000).BuildPayment()
 
 			_, err := suite.sut.Broadcast(

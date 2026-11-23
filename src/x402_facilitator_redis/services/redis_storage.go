@@ -42,6 +42,19 @@ func (rs *RedisStorage) ReadString(ctx context.Context, key string) (*string, er
 	return &value, nil
 }
 
+func (rs *RedisStorage) ReadAndDelete(ctx context.Context, key string) (*string, error) {
+	start := time.Now()
+	value, err := rs.redisClient.GetDel(ctx, key).Result()
+	rs.redisMetrics.RecordOperation(ctx, "GETDEL", time.Since(start), rs.operationError(err))
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
 func (rs *RedisStorage) Delete(ctx context.Context, key string) error {
 	start := time.Now()
 	err := rs.redisClient.Del(ctx, key).Err()

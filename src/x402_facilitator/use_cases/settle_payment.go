@@ -19,6 +19,7 @@ type SettlePayment struct {
 	paymentReader
 	paymentVerifier    x402_facilitator_interfaces.PaymentVerifierInterface
 	settlementGuard    x402_facilitator_interfaces.SettlementGuardInterface
+	payerLimiter       x402_facilitator_interfaces.PayerLimiterInterface
 	transferSubmitter  x402_facilitator_interfaces.TransferSubmitterInterface
 	facilitatorMetrics metrics_interfaces.FacilitatorMetricsInterface
 }
@@ -27,6 +28,7 @@ func NewSettlePayment(
 	assetTransferMethodStrategies x402_facilitator_interfaces.AssetTransferMethodStrategiesInterface,
 	paymentVerifier x402_facilitator_interfaces.PaymentVerifierInterface,
 	settlementGuard x402_facilitator_interfaces.SettlementGuardInterface,
+	payerLimiter x402_facilitator_interfaces.PayerLimiterInterface,
 	transferSubmitter x402_facilitator_interfaces.TransferSubmitterInterface,
 	facilitatorMetrics metrics_interfaces.FacilitatorMetricsInterface,
 ) *SettlePayment {
@@ -34,6 +36,7 @@ func NewSettlePayment(
 		paymentReader:      paymentReader{assetTransferMethodStrategies: assetTransferMethodStrategies},
 		paymentVerifier:    paymentVerifier,
 		settlementGuard:    settlementGuard,
+		payerLimiter:       payerLimiter,
 		transferSubmitter:  transferSubmitter,
 		facilitatorMetrics: facilitatorMetrics,
 	}
@@ -129,8 +132,14 @@ func (u *SettlePayment) settleVerified(
 		u.settlementGuard.Release(ctx, key, token)
 		return nil, err
 	}
+	hold, err := u.payerLimiter.Take(ctx, payment)
+	if err != nil {
+		u.settlementGuard.Release(ctx, key, token)
+		return u.invalid(err, request)
+	}
 	txHash, err := u.transferSubmitter.Broadcast(ctx, payment.ChainId, call)
 	if err != nil {
+		u.payerLimiter.GiveBack(ctx, hold)
 		u.settlementGuard.Release(ctx, key, token)
 		return u.broadcastFailure(err, request)
 	}
@@ -202,6 +211,12 @@ func (u *SettlePayment) broadcastFailure(
 			enums.PaymentReasonInvalidTransactionState,
 			"the chain rejects the transfer",
 		), request)
+	case errors.Is(err, apperrors.ErrGasBudgetSpent):
+		return nil, apperrors.NewUnavailableError(
+			"gas_budget_spent",
+			"the chain's daily gas budget is spent, retry tomorrow",
+			err,
+		)
 	case errors.Is(err, apperrors.ErrRelayerUnavailable):
 		return nil, apperrors.NewUnavailableError("relayer_unavailable", "the relayer wallet is unavailable", err)
 	default:

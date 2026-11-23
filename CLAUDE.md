@@ -57,7 +57,7 @@ otel is touched in exactly one place per module: a dedicated `metrics/` (and, wh
 - **Logging**: `go.uber.org/zap`.
 - **Errors → HTTP**: use cases fail with concrete types from `common/errors`, mapped and logged by `common/mvc.ErrorWriter`, also the fiber `ErrorHandler` (500s and 502s log their hidden `Cause` and answer a fixed message): `ValidationError`/`BadRequestError`→400, `UnavailableError`→502, `InternalError`→500; a plain error → 500. Controllers pick the success status (200).
 - **x402 exception**: a refused payment is not an HTTP failure. `/verify` and `/settle` answer 200 with `isValid`/`success` false and a spec reason code (`common/errors.InvalidPaymentError` → response), an unserved payee included.
-- Requests fail only on an unreachable chain/registry/Redis/Vault or a settlement already in flight (502), a malformed body (400), or an internal error (500).
+- Requests fail only on an unreachable chain/registry/Redis/Vault, a settlement already in flight or a spent gas budget (502), a malformed body (400), or an internal error (500).
 - (Secrets, persistence, and transport are tier-services — see §2.)
 
 ## 7. Naming

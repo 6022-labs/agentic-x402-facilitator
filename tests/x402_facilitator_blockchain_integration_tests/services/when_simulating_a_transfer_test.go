@@ -40,6 +40,7 @@ func WhenSimulatingATransferBeforeEach(
 			chain.ChainsSettings,
 			chain.RedisLockStorage,
 			chain.RedisStorage,
+			chain.UnboundedGasBudget,
 			blockchain_metrics_mocks.NewMockRelayerMetricsInterface(gomock.NewController(t)),
 			zap.NewNop(),
 		),

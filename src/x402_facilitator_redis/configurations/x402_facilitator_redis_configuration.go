@@ -39,6 +39,13 @@ func AddX402FacilitatorRedisConfiguration(container *dig.Container) {
 		panic(err)
 	}
 
+	if err := container.Provide(
+		redis_services.NewRedisCounterStorage,
+		dig.As(new(x402_facilitator_interfaces.CounterStorageInterface)),
+	); err != nil {
+		panic(err)
+	}
+
 	if err := container.Provide(func(redisSettings *settings.RedisSettings, logger *zap.Logger) *redis.Client {
 		client := redis.NewClient(&redis.Options{
 			Addr:     redisSettings.Host,

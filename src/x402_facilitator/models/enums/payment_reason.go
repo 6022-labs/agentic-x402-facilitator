@@ -25,6 +25,9 @@ const (
 	PaymentReasonInvalidPermit2Signature         PaymentReason = "invalid_permit2_signature"
 	PaymentReasonPermit2AllowanceRequired        PaymentReason = "permit2_allowance_required"
 	PaymentReasonPermit2ProxyNotDeployed         PaymentReason = "permit2_proxy_not_deployed"
+	// This facilitator's own reasons, outside the specification.
+	PaymentReasonSelfPayment       PaymentReason = "self_payment"
+	PaymentReasonPayerLimitReached PaymentReason = "payer_limit_reached"
 )
 
 func (r PaymentReason) String() string {

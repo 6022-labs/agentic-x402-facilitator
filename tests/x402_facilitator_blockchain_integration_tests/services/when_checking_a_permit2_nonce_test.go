@@ -32,6 +32,7 @@ func WhenCheckingAPermit2NonceBeforeEach(t *testing.T) *WhenCheckingAPermit2Nonc
 			chain.ChainsSettings,
 			chain.RedisLockStorage,
 			chain.RedisStorage,
+			chain.UnboundedGasBudget,
 			blockchain_metrics_mocks.NewMockRelayerMetricsInterface(gomock.NewController(t)),
 			zap.NewNop(),
 		),

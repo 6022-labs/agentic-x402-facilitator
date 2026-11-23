@@ -79,7 +79,7 @@ const docTemplate = `{
                         }
                     },
                     "502": {
-                        "description": "unavailable dependency, or settlement_in_progress",
+                        "description": "unavailable dependency, settlement_in_progress or gas_budget_spent",
                         "schema": {
                             "$ref": "#/definitions/errors.UnavailableError"
                         }
@@ -163,7 +163,7 @@ const docTemplate = `{
                         }
                     },
                     "502": {
-                        "description": "registry, chain, relayer or store unavailable",
+                        "description": "registry, chain, relayer or store unavailable, or gas_budget_spent",
                         "schema": {
                             "$ref": "#/definitions/errors.UnavailableError"
                         }

@@ -11,6 +11,7 @@ import (
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/models/enums"
 	x402_facilitator_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services"
 	x402_facilitator_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/services/interfaces"
+	x402_facilitator_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/settings"
 	"github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/factory"
 	blockchain_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/settings"
 	redis_services "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_redis/services"
@@ -40,8 +41,10 @@ type IntegrationChain struct {
 	TransactorFactory *factory.TransactorFactory
 	RedisStorage      *redis_services.RedisStorage
 	RedisLockStorage  *redis_services.RedisLockStorage
-	Relayer           container_builders.AnvilAccountSettings
-	Token             *Eip3009Token
+	// UnboundedGasBudget is for suites that do not test the budget.
+	UnboundedGasBudget *x402_facilitator_services.GasBudget
+	Relayer            container_builders.AnvilAccountSettings
+	Token              *Eip3009Token
 }
 
 func NewIntegrationChain(t *testing.T, chainConfig blockchain_settings.ChainConfig) *IntegrationChain {
@@ -88,8 +91,14 @@ func NewIntegrationChain(t *testing.T, chainConfig blockchain_settings.ChainConf
 		TransactorFactory: factory.NewTransactorFactory(mockRelayerKeyStorage, zap.NewNop()),
 		RedisStorage:      redis_services.NewRedisStorage(redisClient, mockRedisMetrics),
 		RedisLockStorage:  redis_services.NewRedisLockStorage(redisClient, mockRedisMetrics),
-		Relayer:           relayer,
-		Token:             token,
+		UnboundedGasBudget: x402_facilitator_services.NewGasBudget(
+			&x402_facilitator_settings.GasBudgetSettings{},
+			interfaces_mocks.NewMockCounterStorageInterface(mockController),
+			interfaces_mocks.NewMockCacheStorageInterface(mockController),
+			zap.NewNop(),
+		),
+		Relayer: relayer,
+		Token:   token,
 	}
 }
 

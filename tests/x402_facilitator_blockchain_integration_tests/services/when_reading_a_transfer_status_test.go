@@ -2,6 +2,7 @@ package services_test
 
 import (
 	"context"
+	"math/big"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	blockchain_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_blockchain/settings"
 	"github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_blockchain_integration_tests/fixtures"
 	blockchain_metrics_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_blockchain_mocks/metrics_mocks/interfaces_mocks"
+	interfaces_mocks "github.com/6022-labs/agentic-x402-facilitator/tests/x402_facilitator_mocks/services_mocks/interfaces_mocks"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,8 +20,9 @@ import (
 )
 
 type WhenReadingATransferStatusTestingSuite struct {
-	chain *fixtures.IntegrationChain
-	sut   *blockchain_services.TransferSubmitter
+	chain         *fixtures.IntegrationChain
+	mockGasBudget *interfaces_mocks.MockGasBudgetInterface
+	sut           *blockchain_services.TransferSubmitter
 }
 
 func WhenReadingATransferStatusBeforeEach(t *testing.T) *WhenReadingATransferStatusTestingSuite {
@@ -27,23 +30,38 @@ func WhenReadingATransferStatusBeforeEach(t *testing.T) *WhenReadingATransferSta
 		t,
 		blockchain_settings.ChainConfig{Confirmations: 1, ReceiptTimeout: 30 * time.Second},
 	)
-	mockRelayerMetrics := blockchain_metrics_mocks.NewMockRelayerMetricsInterface(gomock.NewController(t))
+	mockController := gomock.NewController(t)
+	mockGasBudget := interfaces_mocks.NewMockGasBudgetInterface(mockController)
+	mockGasBudget.EXPECT().Reserve(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockRelayerMetrics := blockchain_metrics_mocks.NewMockRelayerMetricsInterface(mockController)
 	mockRelayerMetrics.EXPECT().
 		RecordGasSpent(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		AnyTimes()
 
 	return &WhenReadingATransferStatusTestingSuite{
-		chain: chain,
+		chain:         chain,
+		mockGasBudget: mockGasBudget,
 		sut: blockchain_services.NewTransferSubmitter(
 			chain.EthClientFactory,
 			chain.TransactorFactory,
 			chain.ChainsSettings,
 			chain.RedisLockStorage,
 			chain.RedisStorage,
+			mockGasBudget,
 			mockRelayerMetrics,
 			zap.NewNop(),
 		),
 	}
+}
+
+func (suite *WhenReadingATransferStatusTestingSuite) expectSettled(txHash common.Hash) {
+	suite.mockGasBudget.EXPECT().
+		Settle(
+			gomock.Any(),
+			suite.chain.ChainId,
+			txHash,
+			gomock.Cond(func(cost *big.Int) bool { return cost.Sign() > 0 }),
+		)
 }
 
 func TestWhenReadingATransferStatus(t *testing.T) {
@@ -94,14 +112,36 @@ func TestWhenReadingATransferStatus(t *testing.T) {
 				context.Background(),
 				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 			require.NoError(t, err)
+			suite.expectSettled(txHash)
 			_, err = suite.sut.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
 			require.NoError(t, err)
 			suite.chain.ChainsSettings.Get(suite.chain.ChainId).Confirmations = 50
+			suite.expectSettled(txHash)
 
 			transfer, err := suite.sut.TransferStatus(context.Background(), suite.chain.ChainId, txHash)
 
 			require.NoError(t, err)
 			assert.Equal(t, models.TransferStatusPending, transfer.Status)
+		})
+
+		t.Run("Should replace its gas reservation with its actual cost", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenReadingATransferStatusBeforeEach(t)
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+			txHash, err := suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+			require.NoError(t, err)
+			suite.expectSettled(txHash)
+			_, err = suite.sut.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
+			require.NoError(t, err)
+			suite.chain.ChainsSettings.Get(suite.chain.ChainId).Confirmations = 50
+			suite.expectSettled(txHash)
+
+			_, err = suite.sut.TransferStatus(context.Background(), suite.chain.ChainId, txHash)
+
+			require.NoError(t, err)
 		})
 	})
 
@@ -117,13 +157,34 @@ func TestWhenReadingATransferStatus(t *testing.T) {
 				context.Background(),
 				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
 			require.NoError(t, err)
+			suite.expectSettled(txHash)
 			_, err = suite.sut.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
 			require.NoError(t, err)
+			suite.expectSettled(txHash)
 
 			transfer, err := suite.sut.TransferStatus(context.Background(), suite.chain.ChainId, txHash)
 
 			require.NoError(t, err)
 			assert.Equal(t, models.TransferStatusConfirmed, transfer.Status)
+		})
+
+		t.Run("Should replace its gas reservation with its actual cost", func(t *testing.T) {
+			t.Parallel()
+
+			suite := WhenReadingATransferStatusBeforeEach(t)
+			payment := suite.chain.FundedPayment(t, 1000).BuildPayment()
+			txHash, err := suite.sut.Broadcast(
+				context.Background(),
+				suite.chain.ChainId, suite.chain.TransferCall(t, payment))
+			require.NoError(t, err)
+			suite.expectSettled(txHash)
+			_, err = suite.sut.AwaitTransfer(context.Background(), suite.chain.ChainId, txHash)
+			require.NoError(t, err)
+			suite.expectSettled(txHash)
+
+			_, err = suite.sut.TransferStatus(context.Background(), suite.chain.ChainId, txHash)
+
+			require.NoError(t, err)
 		})
 	})
 }

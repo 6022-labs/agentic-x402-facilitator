@@ -50,7 +50,7 @@ func (c *FacilitatorController) RegisterRoutes(app fiber.Router) {
 // @Success 200 {object} responses.VerifyPaymentResponse
 // @Failure 400 {object} errors.BadRequestError "invalid_body"
 // @Failure 500 {object} errors.InternalError
-// @Failure 502 {object} errors.UnavailableError "registry, chain, relayer or store unavailable"
+// @Failure 502 {object} errors.UnavailableError "registry, chain, relayer or store unavailable, or gas_budget_spent"
 // @Router /verify [post]
 func (c *FacilitatorController) Verify(ctx fiber.Ctx) error {
 	request := &requests.VerifyPaymentRequest{}
@@ -75,7 +75,7 @@ func (c *FacilitatorController) Verify(ctx fiber.Ctx) error {
 // @Success 200 {object} responses.SettlePaymentResponse
 // @Failure 400 {object} errors.BadRequestError "invalid_body"
 // @Failure 500 {object} errors.InternalError
-// @Failure 502 {object} errors.UnavailableError "unavailable dependency, or settlement_in_progress"
+// @Failure 502 {object} errors.UnavailableError "unavailable dependency, settlement_in_progress or gas_budget_spent"
 // @Router /settle [post]
 func (c *FacilitatorController) Settle(ctx fiber.Ctx) error {
 	request := &requests.SettlePaymentRequest{}
