@@ -17,6 +17,14 @@ func AddX402FacilitatorConfiguration(container *dig.Container) {
 		panic(err)
 	}
 
+	if err := container.Provide(x402_facilitator_settings.NewRateLimitSettings); err != nil {
+		panic(err)
+	}
+
+	if err := container.Provide(x402_facilitator_settings.NewProxySettings); err != nil {
+		panic(err)
+	}
+
 	if err := container.Provide(x402_facilitator_settings.NewAccessSettings); err != nil {
 		panic(err)
 	}

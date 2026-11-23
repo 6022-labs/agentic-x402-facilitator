@@ -1,16 +1,20 @@
 package configurations
 
 import (
+	"time"
+
 	"github.com/6022-labs/agentic-x402-facilitator/src/common/mvc"
 	mvc_interfaces "github.com/6022-labs/agentic-x402-facilitator/src/common/mvc/interfaces"
 	mvc_middlewares "github.com/6022-labs/agentic-x402-facilitator/src/common/mvc/middlewares"
 	"github.com/6022-labs/agentic-x402-facilitator/src/common/settings"
+	x402_facilitator_settings "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator/settings"
 	_ "github.com/6022-labs/agentic-x402-facilitator/src/x402_facilitator_host/docs"
 	fiberotel "github.com/gofiber/contrib/v3/otel"
 	"github.com/gofiber/contrib/v3/swaggo"
 	fiberzap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"go.uber.org/dig"
 	"go.uber.org/zap"
 )
@@ -27,21 +31,30 @@ func ConfigureServer(container *dig.Container) {
 	}
 }
 
-func newHttpServer(hostSettings *settings.HostSettings, errorWriter *mvc.ErrorWriter) *fiber.App {
+func newHttpServer(
+	hostSettings *settings.HostSettings,
+	proxySettings *x402_facilitator_settings.ProxySettings,
+	errorWriter *mvc.ErrorWriter,
+) *fiber.App {
 	return fiber.New(fiber.Config{
-		AppName:      AppName,
-		BodyLimit:    hostSettings.BodyLimitBytes,
-		ErrorHandler: errorWriter.Write,
+		AppName:            AppName,
+		BodyLimit:          hostSettings.BodyLimitBytes,
+		ErrorHandler:       errorWriter.Write,
+		ProxyHeader:        proxySettings.Header,
+		TrustProxy:         proxySettings.Header != "",
+		TrustProxyConfig:   fiber.TrustProxyConfig{Proxies: proxySettings.TrustedProxies},
+		EnableIPValidation: true,
 	})
 }
 
 type registerRoutesParams struct {
 	dig.In
 
-	App            *fiber.App
-	Logger         *zap.Logger
-	RequestMetrics *mvc_middlewares.ApiRequestMetricsMiddleware
-	Controllers    []mvc_interfaces.ControllerInterface `group:"controllers"`
+	App               *fiber.App
+	Logger            *zap.Logger
+	RateLimitSettings *x402_facilitator_settings.RateLimitSettings
+	RequestMetrics    *mvc_middlewares.ApiRequestMetricsMiddleware
+	Controllers       []mvc_interfaces.ControllerInterface `group:"controllers"`
 }
 
 func registerRoutes(p registerRoutesParams) {
@@ -53,6 +66,14 @@ func registerRoutes(p registerRoutesParams) {
 	p.App.Use(fiberotel.Middleware(fiberotel.WithoutMetrics(true)))
 	p.App.Use(p.RequestMetrics.Handle)
 	p.App.Use(fiberzap.New(fiberzap.Config{Logger: p.Logger}))
+
+	p.App.Use(limiter.New(limiter.Config{
+		Max:        p.RateLimitSettings.RequestsPerSecond,
+		Expiration: 1 * time.Second,
+		LimitReached: func(fiber.Ctx) error {
+			return fiber.ErrTooManyRequests
+		},
+	}))
 
 	p.App.Get("/swagger/*", swaggo.New())
 

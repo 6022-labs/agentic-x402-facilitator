@@ -156,6 +156,8 @@ The service refuses to start otherwise.
 | `host.api_port` | `5000` | HTTP port. |
 | `host.body_limit_bytes` | 4 MiB | Largest request body. |
 | `host.listen_address` | all interfaces | Address to bind. |
+| `rate_limit.requests_per_second` | `50` | Requests allowed per client IP each second, on each instance. |
+| `proxy.header`, `proxy.trusted_proxies` | — (image: `X-Forwarded-For`, loopback + private and shared ranges) | Header carrying the client IP, honored only from these IPs or CIDR ranges. |
 | `telemetry.enabled` | `false` | Export metrics, logs and traces over OTLP. |
 | `telemetry.protocol` | `grpc` | OTLP transport, `grpc` (port 4317) or `http` (port 4318). |
 | `telemetry.endpoint`, `instance_id`, `environment` | — | Required once telemetry is on; endpoint is `host:port`. |
