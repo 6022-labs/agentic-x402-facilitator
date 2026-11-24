@@ -1,4 +1,4 @@
-FROM grafana/tempo:3.0.3
+FROM grafana/tempo:3.1.1
 
 COPY tempo-config.yaml /etc/tempo/tempo.yml
 

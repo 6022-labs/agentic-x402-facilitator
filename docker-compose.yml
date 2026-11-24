@@ -82,7 +82,7 @@ services:
       - "4318:4318" # OTLP HTTP
 
   x402-facilitator-mimir:
-    image: "grafana/mimir:3.2.0"
+    image: "grafana/mimir:3.2.3"
     container_name: x402-facilitator-mimir
     command: ["--config.file=/etc/mimir/mimir.yml", "--target=all"]
     volumes:
@@ -92,7 +92,7 @@ services:
       - "9009:9009"
 
   x402-facilitator-loki:
-    image: "grafana/loki:3.7.6"
+    image: "grafana/loki:3.7.9"
     container_name: x402-facilitator-loki
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
@@ -102,7 +102,7 @@ services:
       - "3100:3100"
 
   x402-facilitator-tempo:
-    image: "grafana/tempo:3.0.3"
+    image: "grafana/tempo:3.1.1"
     container_name: x402-facilitator-tempo
     depends_on:
       - x402-facilitator-mimir
@@ -114,7 +114,7 @@ services:
       - "3200:3200"
 
   x402-facilitator-grafana:
-    image: "grafana/grafana:13.2.0"
+    image: "grafana/grafana:13.2.4"
     container_name: x402-facilitator-grafana
     depends_on:
       - x402-facilitator-mimir
