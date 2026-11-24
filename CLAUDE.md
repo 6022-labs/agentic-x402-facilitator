@@ -56,8 +56,8 @@ otel is touched in exactly one place per module: a dedicated `metrics/` (and, wh
 - **Config**: `koanf`. Every setting configurable from **both** `appsettings*.json` **and** env/`.env` (double-underscore lowercased → dotted, e.g. `JWT__SIGNING_KEY` → `jwt.signing_key`). Settings structs in each module's `settings/`: `koanf:"..."` tags on a private raw struct, defaults in the `New...` constructor, which also computes every derived value (durations as `time.Duration` fields) — no computing methods on settings. New setting = tag + default + verified env override.
 - **Logging**: `go.uber.org/zap`.
 - **Errors → HTTP**: use cases fail with concrete types from `common/errors`, mapped and logged by `common/mvc.ErrorWriter`, also the fiber `ErrorHandler` (500s and 502s log their hidden `Cause` and answer a fixed message): `ValidationError`/`BadRequestError`→400, `UnavailableError`→502, `InternalError`→500; a plain error → 500. Controllers pick the success status (200).
-- **x402 exception**: a refused payment is not an HTTP failure. `/verify` and `/settle` answer 200 with `isValid`/`success` false and a spec reason code (`common/errors.InvalidPaymentError` → response), an unserved payee included.
-- Requests fail only on an unreachable chain/registry/Redis/Vault, a settlement already in flight or a spent gas budget (502), a malformed body (400), or an internal error (500).
+- **x402 exception**: a refused payment is not an HTTP failure. `/verify` and `/settle` answer 200 with `isValid`/`success` false and a reason code (`common/errors.InvalidPaymentError` → response), an unserved payee included. `self_payment` and `payer_limit_reached` are ours, the others come from the spec.
+- Requests fail only on an unreachable chain/registry/Redis/Vault, a settlement already in flight or a spent gas budget (502), a malformed body (400), too many requests from an IP (429), or an internal error (500).
 - (Secrets, persistence, and transport are tier-services — see §2.)
 
 ## 7. Naming
@@ -92,8 +92,8 @@ If any box is unchecked, the work isn't done — finish it before presenting.
 
 ## Module specifics
 - Modules: `x402_facilitator` (domain; x402 wire types live in `use_cases/requests` and never reference `models` (each method's strategy maps them onto `models.Payment`), reason codes in `models/enums`, EIP-712 hashing in `helpers`), `x402_facilitator_blockchain` (RPC, relayer transactions, agent registry lookup), `x402_facilitator_redis` (shared cache and locks), `x402_facilitator_vault` (relayer key), `x402_facilitator_mvc`, `x402_facilitator_host`.
-- Scales horizontally: all shared state lives in Redis, never in process memory.
-  - Payee lookup cache.
+- Scales horizontally: shared state lives in Redis, never in process memory (the IP rate limit alone is per instance):
+  - Payee lookup cache, payer limit and gas budget counters.
   - `SettlementGuard`: a per-authorization lock while broadcasting, then the tx hash with the signed terms (other terms under the same nonce are refused) until `validBefore` (at least the lock TTL, at most an hour). It is checked after the local signature check (so only the signer's own request reads it), before the full verification, and again under the lock; `/verify` refuses an authorization already sent; a retry gets that tx as pending, or as already settled (never `success: true`, which would pay a replay).
   - The relayer's per-chain send lock and each signed tx kept per nonce: the next nonce is the first one from `PendingNonceAt` with no kept tx, resending the kept ones on the way so a lost one is put back; signing and sending have their own deadlines inside the lock TTL.
 - `settlement.lock_ttl_seconds` must exceed every chain's `MaxSettlementDuration`, checked at startup.

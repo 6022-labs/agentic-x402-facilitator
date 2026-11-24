@@ -70,9 +70,9 @@ The facilitator exposes four routes:
 | `GET /supported` | Lists the networks it can settle and its wallet address. |
 | `GET /health` | Tells you the service is up. |
 
-A payment it refuses still gets a `200`, with `isValid` (or `success`) set to `false` and an
-x402 reason such as `insufficient_funds`. That includes a payment to a wallet that is not a
-6022 agent.
+A payment it refuses still gets a `200`, with `isValid` (or `success`) set to `false` and a
+reason such as `insufficient_funds`. That includes a payment to a wallet that is not a 6022 agent.
+`self_payment` and `payer_limit_reached` are our own reasons, the others come from x402.
 
 An HTTP error means something else went wrong:
 
@@ -184,10 +184,11 @@ around both, so set `chains.<id>.daily_gas_budget` too: once it is spent, `/veri
 answer 502 `gas_budget_spent` on that chain until the next UTC day. The budget does not count the
 L1 data fee rollups add, so set it lower there.
 
-**Run as many instances as you like** behind a load balancer. They share everything through
-Redis: agent lookups, the lock that stops two instances from sending the same payment, and
-the relayer's sent transactions, so they never send two transactions with the same nonce. If the chain
-loses a transaction, the next send puts it back.
+**Run as many instances as you like** behind a load balancer. They share these through
+Redis: agent lookups, the payer limit and gas budget counters, the lock that stops two instances from
+sending the same payment, and the relayer's sent transactions, so they never send two transactions with
+the same nonce. If the chain loses a transaction, the next send puts it back. Only the IP rate limit is
+counted per instance.
 
 ## Monitoring
 

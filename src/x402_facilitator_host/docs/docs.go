@@ -37,7 +37,7 @@ const docTemplate = `{
         },
         "/settle": {
             "post": {
-                "description": "Verifies, submits and waits for an exact EIP-3009 payment; a refused one answers 200, success false.",
+                "description": "Verifies, submits and waits for an exact payment; a refused one answers 200, success false.",
                 "consumes": [
                     "application/json"
                 ],
@@ -121,7 +121,7 @@ const docTemplate = `{
         },
         "/verify": {
             "post": {
-                "description": "Checks an exact EIP-3009 payment without writing on-chain; a refused one answers 200, isValid false.",
+                "description": "Checks an exact payment without writing on-chain; a refused one answers 200, isValid false.",
                 "consumes": [
                     "application/json"
                 ],
