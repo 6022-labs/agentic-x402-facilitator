@@ -42,7 +42,7 @@ func (c *FacilitatorController) RegisterRoutes(app fiber.Router) {
 }
 
 // @Summary Verify a payment
-// @Description Checks an exact EIP-3009 payment without writing on-chain; a refused one answers 200, isValid false.
+// @Description Checks an exact payment without writing on-chain; a refused one answers 200, isValid false.
 // @Tags Facilitator
 // @Accept json
 // @Produce json
@@ -67,7 +67,7 @@ func (c *FacilitatorController) Verify(ctx fiber.Ctx) error {
 }
 
 // @Summary Settle a payment
-// @Description Verifies, submits and waits for an exact EIP-3009 payment; a refused one answers 200, success false.
+// @Description Verifies, submits and waits for an exact payment; a refused one answers 200, success false.
 // @Tags Facilitator
 // @Accept json
 // @Produce json
