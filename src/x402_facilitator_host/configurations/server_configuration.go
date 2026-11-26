@@ -63,7 +63,7 @@ func registerRoutes(p registerRoutesParams) {
 		AllowHeaders: []string{"*"},
 	}))
 	// Spans only: ApiRequestMetrics owns http.server.*.
-	p.App.Use(fiberotel.Middleware(fiberotel.WithoutMetrics(true)))
+	p.App.Use(fiberotel.New(fiberotel.WithoutMetrics(true)))
 	p.App.Use(p.RequestMetrics.Handle)
 	p.App.Use(fiberzap.New(fiberzap.Config{Logger: p.Logger}))
 
